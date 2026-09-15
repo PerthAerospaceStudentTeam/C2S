@@ -21,17 +21,17 @@
 /Software/C2Sv[01]*/*
 
 # Configuration Files
-!/Software/C2Sv[01]*/.cproject
-!/Software/C2Sv[01]*/.mxproject
-!/Software/C2Sv[01]*/.project
-!/Software/C2Sv[01]*/C2Sv[01]*.ioc
-!/Software/C2Sv[01]*/STM32U5G9ZJTXQ_*.ld
+!/Software/C2Sv*/.cproject
+!/Software/C2Sv*/.mxproject
+!/Software/C2Sv*/.project
+!/Software/C2Sv*/C2Sv[01]*.ioc
+!/Software/C2Sv*/*.ld
 
 # Drivers
-!/Software/C2Sv[01]*/Drivers/
-/Software/C2Sv[01]*/Drivers/*
-!/Software/C2Sv[01]*/Drivers/Custom/
-!/Software/C2Sv[01]*/Drivers/Custom/*/
+!/Software/C2Sv*/Drivers/
+/Software/C2Sv*/Drivers/*
+!/Software/C2Sv*/Drivers/Custom/
+!/Software/C2Sv*/Drivers/Custom/*/
 
 # Core / Source
 !/Software/C2Sv*/Core/
@@ -46,15 +46,10 @@
 !/Software/C2Sv*/Core/Src/
 /Software/C2Sv*/Core/Src/*
 !/Software/C2Sv*/Core/Src/main.c
-!/Software/C2Sv*/Core/Src/syscalls.c
-!/Software/C2Sv*/Core/Src/sysmem.c
 !/Software/C2Sv*/Core/Src/app_threadx.c
 !/Software/C2Sv*/Core/Src/stm32u5xx_it.c
 
 !/Software/C2Sv*/Core/Startup/
 /Software/C2Sv*/Core/Startup/*
-!/Software/C2Sv0/Core/Startup/startup_stm32u5g9zjtxq.[sS]
-!/Software/C2Sv1/Core/Startup/startup_stm32u575ritx.[sS]
 
-# FileX Custom SPI Driver (Exclusive to C2Sv1)
-!/Software/C2Sv1*/FileX/
+!/Software/C2Sv*/Core/Startup/startup_*.[sS]

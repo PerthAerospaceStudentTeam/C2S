@@ -24,6 +24,24 @@ uint32_t __inline __clz( uint32_t value ) {
 }
 #endif
 
+extern uint32_t section1_profile;
+extern uint32_t section2_profile;
+extern uint32_t section3_profile;
+extern uint32_t section4_profile;
+extern uint32_t section5_profile;
+extern uint32_t section6_profile;
+
+extern uint64_t section1_1_profile;
+extern uint64_t section1_2_profile;
+extern uint64_t section1_3_profile;
+extern uint64_t section1_4_profile;
+
+extern uint64_t section_5_1_profile;
+extern uint64_t section_5_2_profile;
+extern uint64_t section_5_3_profile;
+extern uint64_t section_5_4_profile;
+#include "stm32u5xx_hal.h"
+
 #define ICER_CIRC_BUF_SIZE 2048
 #define MAX_K 12
 #ifndef ICER_MAX_SEGMENTS

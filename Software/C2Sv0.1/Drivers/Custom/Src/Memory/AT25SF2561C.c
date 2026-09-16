@@ -14,7 +14,7 @@
  */
 
 
-#include"AT25SF2561C.h"
+#include "AT25SF2561C.h"
 
 /**
  * @brief  Resets the OSPI command structure to default values.

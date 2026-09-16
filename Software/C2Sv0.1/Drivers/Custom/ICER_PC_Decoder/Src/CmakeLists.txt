@@ -1,0 +1,68 @@
+```cmake
+cmake_minimum_required(VERSION 3.16)
+
+project(icer_pc_decoder
+    LANGUAGES C
+)
+
+# --------------------------------------------------
+# C Standard
+# --------------------------------------------------
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+
+# --------------------------------------------------
+# Source files
+# --------------------------------------------------
+
+add_executable(embedded_decoder
+
+    # PC decoder
+    embedded_decoder.c
+    stb_lib.c
+
+    # ICER library
+    ../Src/icer_wavelet.c
+    ../Src/icer_color.c
+    ../Src/icer_encoding.c
+    ../Src/icer_init.c
+    ../Src/icer_config.c
+    ../Src/icer_partition.c
+    ../Src/icer_decoding.c
+    ../Src/crc32.c
+    ../Src/icer_context_modeller.c
+    ../Src/icer_compress.c
+    ../Src/icer_util.c
+)
+
+# --------------------------------------------------
+# Include directories
+# --------------------------------------------------
+
+target_include_directories(embedded_decoder
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../Inc
+)
+
+# --------------------------------------------------
+# Math library
+# --------------------------------------------------
+
+target_link_libraries(embedded_decoder
+    PRIVATE
+        m
+)
+
+# --------------------------------------------------
+# Compiler warnings
+# --------------------------------------------------
+
+target_compile_options(embedded_decoder
+    PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+)
+```

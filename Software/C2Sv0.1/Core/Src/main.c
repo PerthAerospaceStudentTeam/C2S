@@ -260,28 +260,28 @@ int main(void)
 
 	  // Read BOOT0 Pin State
 	  BOOT0 = HAL_GPIO_ReadPin(BOOT0_GPIO_Port, BOOT0_Pin);
-	  uint32_t stat = Benchmark_Test_Harness_Compress_From_SD();
-
-	  powerSum   += csa.sys_power;
-	  currentSum += csa.current;
-	  voltageSum += csa.voltage;
-	  sampleCount++; // Track real number of samples
-
-	  uint32_t now = HAL_GetTick();
-	  if ((now - prevTime) >= POWER_AVG_WINDOW_MS && sampleCount > 0) {
-	      // Use 64-bit math to prevent overflow and maintain precision
-	      powerAvg   = (uint32_t)((powerSum * 1000) / sampleCount);
-	      currentAvg = (uint32_t)((currentSum * 1000) / sampleCount);
-	      voltageAvg = (uint32_t)((voltageSum * 1000) / sampleCount);
-
-	      // Reset
-	      powerSum = 0; currentSum = 0; voltageSum = 0;
-	      sampleCount = 0;
-	      prevTime = now;
-	  }
-
-	  float lcd_vals[3] = {powerAvg, currentAvg, voltageAvg};
-	  if (SELECTED_LCD) { sLCD_CSA_DISPLAY(scroll_encoder.cfg.idx, lcd_vals); }
+	  uint32_t stat = Perform_ICER_Compress_From_SD();
+	  break;
+//	  powerSum   += csa.sys_power;
+//	  currentSum += csa.current;
+//	  voltageSum += csa.voltage;
+//	  sampleCount++; // Track real number of samples
+//
+//	  uint32_t now = HAL_GetTick();
+//	  if ((now - prevTime) >= POWER_AVG_WINDOW_MS && sampleCount > 0) {
+//	      // Use 64-bit math to prevent overflow and maintain precision
+//	      powerAvg   = (uint32_t)((powerSum * 1000) / sampleCount);
+//	      currentAvg = (uint32_t)((currentSum * 1000) / sampleCount);
+//	      voltageAvg = (uint32_t)((voltageSum * 1000) / sampleCount);
+//
+//	      // Reset
+//	      powerSum = 0; currentSum = 0; voltageSum = 0;
+//	      sampleCount = 0;
+//	      prevTime = now;
+//	  }
+//
+//	  float lcd_vals[3] = {powerAvg, currentAvg, voltageAvg};
+//	  if (SELECTED_LCD) { sLCD_CSA_DISPLAY(scroll_encoder.cfg.idx, lcd_vals); }
 
 
 

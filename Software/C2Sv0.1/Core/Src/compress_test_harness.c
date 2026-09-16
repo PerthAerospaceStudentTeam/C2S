@@ -5,36 +5,41 @@
  *      Author: Dimitrije Simic
  */
 
-// TODO: Implement batched compressing and load/save to sd card
-
 #include "compress_test_harness.h"
 
 static icer_output_data_buf_typedef output;
 
-// Configure source image dimensions here
-#define SOURCE_IMG_WIDTH 640
-#define SOURCE_IMG_HEIGHT 480
+/**
+ * Configure SOURCE_IMG_WIDTH, SOURCE_IMG_HEIGHT and filenames before compression
+ */
+#define SOURCE_IMG_WIDTH 1920
+#define SOURCE_IMG_HEIGHT 1080
+static char* filenames[] = {"Y_1920x1080.bin", "U_1920x1080.bin", "V_1920x1080.bin"};
+#define CHUNK_WIDTH 640U
+#define CHUNK_HEIGHT 480U
 
 
-
-//#define Y_SIZE (WIDTH) * (HEIGHT)
-//#define U_SIZE ((WIDTH) * (HEIGHT))
-//#define V_SIZE ((WIDTH) * (HEIGHT))
-//
-//#define TEST_IMAGE_SIZE (Y_SIZE) + (U_SIZE) + (V_SIZE)
-
-
-
-static uint16_t Get_Dimension_Divisor(void) {
-	uint16_t divisor = 1;
-
-	while (((SOURCE_IMG_WIDTH / divisor) * (SOURCE_IMG_HEIGHT / divisor)) > MAX_CHUNK_PIXELS)
-	{
-		divisor++;
-	}
-
-	return divisor;
+static uint16_t Get_Chunks_X(void)
+{
+	return (SOURCE_IMG_WIDTH + CHUNK_WIDTH - 1) / CHUNK_WIDTH;
 }
+
+static uint16_t Get_Chunks_Y(void)
+{
+	return (SOURCE_IMG_HEIGHT + CHUNK_HEIGHT - 1) / CHUNK_HEIGHT;
+}
+
+
+//static uint16_t Get_Dimension_Divisor(void) {
+//	uint16_t divisor = 1;
+//
+//	while (((SOURCE_IMG_WIDTH / divisor) * (SOURCE_IMG_HEIGHT / divisor)) > MAX_CHUNK_PIXELS)
+//	{
+//		divisor++;
+//	}
+//
+//	return divisor;
+//}
 
 /**
  * @brief Loads a rectangular image chunk from a file on the SD card.
@@ -61,11 +66,29 @@ static uint32_t Load_Data_Chunk_From_SD(FX_FILE* file, int chunk_row, int chunk_
 	uint32_t image_row_start = chunk_row * chunk_height;
 	uint32_t image_col_start = chunk_col * chunk_width;
 
-	// Calculate number of bytes for one row of pixels in the chunk
-	uint32_t row_size = chunk_width * sizeof(uint16_t);
+	// Set the buffer to 0
+	memset(buffer, 0, MAX_CHUNK_PIXELS * sizeof(uint16_t));
 
-	// Read chunk one row at a time
-	for (uint32_t row = 0; row < chunk_height; row++)
+
+	// Clip valid_width or valid_height to maximum allowed chunk width/height
+	// If valid is smaller than max allowed, then only read valid pixels
+	uint32_t valid_width = SOURCE_IMG_WIDTH - image_col_start;
+	if (valid_width > CHUNK_WIDTH)
+	{
+		valid_width = CHUNK_WIDTH;
+	}
+
+	uint32_t valid_height = SOURCE_IMG_HEIGHT - image_row_start;
+	if (valid_height > CHUNK_HEIGHT)
+	{
+		valid_height = CHUNK_HEIGHT;
+	}
+
+	// Calculate number of bytes for one row of pixels in the chunk
+	uint32_t row_size = valid_width * sizeof(uint16_t);
+
+	// Read chunk one valid row at a time
+	for (uint32_t row = 0; row < valid_height; row++)
 	{
 		// Calculate current rows position within full image
 		uint32_t image_row = image_row_start + row;
@@ -83,7 +106,7 @@ static uint32_t Load_Data_Chunk_From_SD(FX_FILE* file, int chunk_row, int chunk_
 		}
 
 		// read one row of the chunk directly into the buffer
-		status = fx_file_read(file, &buffer[row * chunk_width], row_size, &actual);
+		status = fx_file_read(file, &buffer[row * CHUNK_WIDTH], row_size, &actual);
 
 		if (status != FX_SUCCESS)
 		{
@@ -114,9 +137,9 @@ static uint32_t Load_Data_Chunk_From_SD(FX_FILE* file, int chunk_row, int chunk_
  *         loading a chunk fails, or an ICER result code if initialisation
  *         or compression fails.
  */
-
-static uint32_t chunk_compression_cycles[20];
-static uint32_t Test_ICER_Compress_From_SD(FX_FILE* y_file, FX_FILE* u_file, FX_FILE* v_file, uint16_t divisor) {
+#define MAX_CHUNKS 20
+static uint64_t chunk_compression_cycles[MAX_CHUNKS];
+static uint32_t ICER_Compress_From_SD(FX_FILE* y_file, FX_FILE* u_file, FX_FILE* v_file, uint16_t chunks_x, uint16_t chunks_y) {
 	uint32_t status = 0;
 	int icer_res = 0;
 	// fx_file for the compressed output binary
@@ -130,8 +153,8 @@ static uint32_t Test_ICER_Compress_From_SD(FX_FILE* y_file, FX_FILE* u_file, FX_
 	}
 
 
-	uint16_t chunk_height = SOURCE_IMG_HEIGHT / divisor;
-	uint16_t chunk_width = SOURCE_IMG_WIDTH / divisor;
+	uint16_t chunk_width = CHUNK_WIDTH;
+	uint16_t chunk_height = CHUNK_HEIGHT;
 
 	uint8_t is_last_chunk = 0;
 
@@ -142,13 +165,16 @@ static uint32_t Test_ICER_Compress_From_SD(FX_FILE* y_file, FX_FILE* u_file, FX_
 	static uint16_t V[MAX_CHUNK_PIXELS];
 
 	file_header_t file_header = {
-			.divisor = divisor,
+			.chunks_x = chunks_x,
+			.chunks_y = chunks_y,
 			.chunk_width = chunk_width,
-			.chunk_height = chunk_height
+			.chunk_height = chunk_height,
+			.original_width = SOURCE_IMG_WIDTH,
+			.original_height = SOURCE_IMG_HEIGHT
 	};
 
 	// Store header data in output binary file
-	status = SD_Stream_Data(&output_file, compressed_filename, &file_header, sizeof(file_header), 0);
+	status = SD_Stream_Data(&output_file, (char*)compressed_filename, &file_header, sizeof(file_header), 0);
 	if (status != FX_SUCCESS) {
 	    return status;
 	}
@@ -162,13 +188,18 @@ static uint32_t Test_ICER_Compress_From_SD(FX_FILE* y_file, FX_FILE* u_file, FX_
 	chunk_header_t chunk_header;
 
 	// Loop through each chunk, load data from SD card, compressed then write back to SD
-	for (int row = 0; row < divisor; row++) {
-		for (int col = 0; col < divisor; col++) {
+	for (int row = 0; row < chunks_y; row++) {
+		for (int col = 0; col < chunks_x; col++) {
 
-			if (row == divisor - 1 && col == divisor - 1) {
+			if (row == chunks_y - 1 && col == chunks_x - 1) {
 				is_last_chunk = 1;
 			}
+			// reset each buffer
+			memset(Y, 0, sizeof(Y));
+			memset(U, 0, sizeof(U));
+			memset(V, 0, sizeof(V));
 			// Must call this for ICER, resets output structure each iteration
+			memset(compressed_output, 0, sizeof(compressed_output));
 			icer_res = icer_init_output_struct(&output, compressed_output, sizeof(compressed_output), ICER_BYTE_QUOTA);
 			if (icer_res != ICER_RESULT_OK) return icer_res;
 
@@ -183,23 +214,26 @@ static uint32_t Test_ICER_Compress_From_SD(FX_FILE* y_file, FX_FILE* u_file, FX_
 
 			// Perform actual compression
 			uint32_t start = DWT->CYCCNT;
-			icer_res = icer_compress_image_yuv_uint16(Y, U, V, chunk_width, chunk_height, stages, filt, segments, &output);
+			icer_res = icer_compress_image_yuv_uint16(Y, U, V, CHUNK_WIDTH, CHUNK_HEIGHT, stages, filt, segments, &output);
 			uint32_t end = DWT->CYCCNT;
 			if (icer_res != ICER_RESULT_OK && icer_res != ICER_BYTE_QUOTA_EXCEEDED) return icer_res;
 
-			chunk_compression_cycles[(row * divisor) + col] = end - start;
+			uint16_t chunk_id = (row * chunks_x) + col;
+
+			chunk_compression_cycles[chunk_id] = (uint64_t)(end - start);
+
 
 			// Encode start of chunk with chunk header
 			chunk_header.chunk_start = CHUNK_START_ID;
-			chunk_header.chunk_id = (row * divisor) + col;
+			chunk_header.chunk_id = chunk_id;
 			chunk_header.compressed_size = output.size_used;
 			// Save header to output file on SD
-			status = SD_Stream_Data(&output_file, compressed_filename, &chunk_header, sizeof(chunk_header), 0);
+			status = SD_Stream_Data(&output_file, (char*)compressed_filename, &chunk_header, sizeof(chunk_header), 0);
 			if (status != FX_SUCCESS) {
 			    return status;
 			}
 			//Save compressed data to output file on SD
-			status = SD_Stream_Data(&output_file, compressed_filename, output.rearrange_start, output.size_used, is_last_chunk);
+			status = SD_Stream_Data(&output_file, (char*)compressed_filename, output.rearrange_start, output.size_used, is_last_chunk);
 			if (status != FX_SUCCESS) {
 			    return status;
 			}
@@ -208,16 +242,16 @@ static uint32_t Test_ICER_Compress_From_SD(FX_FILE* y_file, FX_FILE* u_file, FX_
 	return status;
 }
 
-#define NUM_CLOCK_TESTS 4
+#define NUM_CLOCK_TESTS 1
 static const uint32_t clock_dividers[NUM_CLOCK_TESTS] = {
 		RCC_SYSCLK_DIV1,
 		RCC_SYSCLK_DIV2,
 		RCC_SYSCLK_DIV4,
 		RCC_SYSCLK_DIV8
 };
-static uint32_t benchmark_clock[NUM_CLOCK_TESTS];
-static uint32_t benchmark_cycles[NUM_CLOCK_TESTS];
-static uint32_t benchmark_time_us[NUM_CLOCK_TESTS];
+static uint64_t benchmark_clock[NUM_CLOCK_TESTS];
+static uint64_t benchmark_cycles[NUM_CLOCK_TESTS];
+static uint64_t benchmark_time_us[NUM_CLOCK_TESTS];
 
 /*
  * @brief Writes benchmarking data to an SD card connected to board
@@ -239,7 +273,7 @@ static uint32_t Write_Benchmark_To_SD() {
 	}
 
 	// Write headers to line buffer
-	len = snprintf(line, sizeof(line), "prescalar,chunk_idx,clock_hz,chunk_cycles,chunk_time_us");
+	len = snprintf(line, sizeof(line), "prescalar,clock_hz,cycles,time_us\n");
 	status = SD_Stream_Data(&csv_file, (char*)csv_filename, line, len, 0);
 	if (status != FX_SUCCESS) {
 		return status;
@@ -257,6 +291,39 @@ static uint32_t Write_Benchmark_To_SD() {
 							(unsigned long)benchmark_time_us[i]);
 
 		status = SD_Stream_Data(&csv_file, (char*)csv_filename, line, len, is_last);
+		if (status != FX_SUCCESS) {
+			return status;
+		}
+	}
+	return status;
+}
+#include <inttypes.h> // For PRIu64
+static uint32_t Write_Chunks_To_SD(uint16_t num_chunks) {
+	uint32_t status;
+	FX_FILE chunk_csv_file;
+	const char* csv_filename = "chunks_benchmark.csv";
+	char line[128];
+	int len;
+
+	status = Init_Output_File(&chunk_csv_file, csv_filename);
+	if (status != FX_SUCCESS) {
+		return status;
+	}
+
+	len = snprintf(line, sizeof(line), "chunk#,cycles,time_us\r\n");
+	status = SD_Stream_Data(&chunk_csv_file, (char*)csv_filename, line, len, 0);
+	if (status != FX_SUCCESS) {
+		return status;
+	}
+
+	for (int c = 0; c < num_chunks; c++) {
+		uint8_t is_last = (c == num_chunks - 1);
+        len = snprintf(line,sizeof(line),"%u,%lu,%lu\r\n",
+            c,
+            (unsigned long)chunk_compression_cycles[c],
+            (unsigned long)(((uint64_t)chunk_compression_cycles[c] * 1000000ULL) / benchmark_clock[0]));
+
+	    status = SD_Stream_Data(&chunk_csv_file, (char*)csv_filename, line, len, is_last);
 		if (status != FX_SUCCESS) {
 			return status;
 		}
@@ -283,7 +350,7 @@ static uint32_t Write_Benchmark_To_SD() {
  * benchmark different image sizes
  *
  */
-uint32_t Benchmark_Test_Harness_Compress_From_SD(void) {
+uint32_t Perform_ICER_Compress_From_SD(void) {
 
 	uint32_t status = 0;
 
@@ -291,12 +358,12 @@ uint32_t Benchmark_Test_Harness_Compress_From_SD(void) {
 	FX_FILE  u_file;
 	FX_FILE  v_file;
 
-	// Change these and SOURCE_IMG_* at start of file to set different image sizes
-	char * filenames[] = {"Y_640x480.bin", "U_640x480.bin", "V_640x480.bin"};
 	// Open uncompressed Y  U and V files
 	// Represents the amount of chunks per row and column
-	uint16_t divisor = Get_Dimension_Divisor();
-	uint16_t num_chunks = divisor * divisor;
+	uint16_t chunks_x = Get_Chunks_X();
+	uint16_t chunks_y = Get_Chunks_Y();
+	uint16_t num_chunks = chunks_x * chunks_y;
+
 	status = SD_Open_YUV_Files(filenames, &y_file, &u_file, &v_file);
 	if (status != FX_SUCCESS) {
 		return status;
@@ -315,15 +382,17 @@ uint32_t Benchmark_Test_Harness_Compress_From_SD(void) {
         status = fx_file_seek(&v_file, 0);
         if (status != FX_SUCCESS) { return status; }
 
-    	status = Test_ICER_Compress_From_SD(&y_file, &u_file, &v_file, divisor);
+    	status = ICER_Compress_From_SD(&y_file, &u_file, &v_file, chunks_x, chunks_y);
         if (status != FX_SUCCESS) {
         	fx_file_close(&y_file);
         	fx_file_close(&u_file);
         	fx_file_close(&v_file);
             return status;
         }
+        status = Write_Chunks_To_SD(num_chunks);
+        if (status != FX_SUCCESS) { return status; }
         // Sum data from each chunk
-        uint32_t total_cycles = 0;
+        uint64_t total_cycles = 0;
         for (int c = 0; c < num_chunks; c++) {
 
         	total_cycles += chunk_compression_cycles[c];
@@ -342,41 +411,3 @@ uint32_t Benchmark_Test_Harness_Compress_From_SD(void) {
 	fx_file_close(&v_file);
 	return status;
 }
-
-
-//void Test_ICER_Compress_From_YUV_File_SD(void) {
-//    uint32_t status;
-//    uint8_t icer_res;
-//    //static uint8_t rx_buf[TEST_IMAGE_SIZE];
-//
-//    uSD_Test();
-//
-//    static uint16_t Y[Y_SIZE];
-//    static uint16_t U[U_SIZE];
-//    static uint16_t V[V_SIZE];
-//
-//
-//
-//    // When extracting the compressed output, the data starts at output.rearrange_start and is of size output.size_used
-//    static uint8_t compressed_output[COMPRESSED_BUFFER_SIZE];
-//
-//
-//     // Can configure these for different settings, Look at documentation for the meaning behind these variables
-//    const int stages = 4;
-//    const enum icer_filter_types filt = ICER_FILTER_A;
-//    int segments = 10;
-//
-//    icer_res = icer_init_output_struct(&output, compressed_output, sizeof(compressed_output), ICER_BYTE_QUOTA);
-//    if (icer_res != ICER_RESULT_OK) return;
-//
-//    icer_res = icer_compress_image_yuv_uint16(Y, U, V, WIDTH, HEIGHT, stages, filt, segments, &output);
-//    if (icer_res != ICER_RESULT_OK && icer_res != ICER_BYTE_QUOTA_EXCEEDED) return;
-//
-////    if (output.size_used > 0) {
-////        status = SD_Stream_Data((char *)"compress_640_480.bin", output.data_start, (uint32_t)output.size_used, 1);
-////        if (status != FX_SUCCESS) return;
-////    }
-//
-//    fx_media_flush(&sd_disk);
-//    fx_media_close(&sd_disk);
-//}

@@ -351,9 +351,25 @@ int icer_decompress_image_yuv_uint8(uint8_t *y_channel, uint8_t *u_channel, uint
 
 #ifdef USE_UINT16_FUNCTIONS
 #ifdef USE_ENCODE_FUNCTIONS
+uint32_t section1_profile;
+uint32_t section2_profile;
+uint32_t section3_profile;
+uint32_t section4_profile;
+uint32_t section5_profile;
+uint32_t section6_profile;
+
+uint32_t outer_start;
+uint32_t outer_end;
+uint64_t outer_total;
+
+uint32_t icer_profile_start;
+uint32_t icer_profile_end;
+
+
 int icer_compress_image_yuv_uint16(uint16_t *y_channel, uint16_t *u_channel, uint16_t *v_channel, size_t image_w,
                                   size_t image_h, uint8_t stages, enum icer_filter_types filt,
                                   uint8_t segments, icer_output_data_buf_typedef *const output_data) {
+	outer_start = DWT->CYCCNT;
     int res;
     icer_image_metadata_typedef metadata;
     metadata.image_w = image_w;
@@ -362,15 +378,28 @@ int icer_compress_image_yuv_uint16(uint16_t *y_channel, uint16_t *u_channel, uin
     metadata.filter = filt;
     metadata.segments = segments;
 
+    // SECTION 1 PROFILING START
+    icer_profile_start = DWT->CYCCNT;
+
     res = icer_wavelet_transform_stages_uint16(y_channel, image_w, image_h, stages, filt);
     if (res != ICER_RESULT_OK) return res;
+
 
     res = icer_wavelet_transform_stages_uint16(u_channel, image_w, image_h, stages, filt);
     if (res != ICER_RESULT_OK) return res;
 
+
+
     res = icer_wavelet_transform_stages_uint16(v_channel, image_w, image_h, stages, filt);
     if (res != ICER_RESULT_OK) return res;
 
+
+    // SECTION 1 PROFILING END
+    icer_profile_end = DWT->CYCCNT;
+    section1_profile = icer_profile_end - icer_profile_start;
+
+    // SECTION 2 PROFILING START
+    icer_profile_start = DWT->CYCCNT;
     size_t ll_w = icer_get_dim_n_low_stages(image_w, stages);
     size_t ll_h = icer_get_dim_n_low_stages(image_h, stages);
 
@@ -387,6 +416,8 @@ int icer_compress_image_yuv_uint16(uint16_t *y_channel, uint16_t *u_channel, uin
             }
         }
     }
+
+
 
     uint16_t ll_mean[ICER_CHANNEL_MAX+1];
     for (int chan = ICER_CHANNEL_MIN;chan <= ICER_CHANNEL_MAX;chan++) {
@@ -412,7 +443,12 @@ int icer_compress_image_yuv_uint16(uint16_t *y_channel, uint16_t *u_channel, uin
     icer_to_sign_magnitude_int16(y_channel, image_w * image_h);
     icer_to_sign_magnitude_int16(u_channel, image_w * image_h);
     icer_to_sign_magnitude_int16(v_channel, image_w * image_h);
-
+    // SECTION 2 PROFILING END
+    icer_profile_end = DWT->CYCCNT;
+    section2_profile = icer_profile_end - icer_profile_start;
+//
+//    // SECTION 3 PROFILING START
+    icer_profile_start = DWT->CYCCNT;
     uint32_t priority = 0;
     uint32_t ind = 0;
     for (uint8_t curr_stage = 1;curr_stage <= stages;curr_stage++) {
@@ -441,7 +477,12 @@ int icer_compress_image_yuv_uint16(uint16_t *y_channel, uint16_t *u_channel, uin
             }
         }
     }
-
+//    // SECTION 3 PROFILING END
+    icer_profile_end = DWT->CYCCNT;
+    section3_profile = icer_profile_end - icer_profile_start;
+//
+//    // SECTION 4 PROFILING START
+    icer_profile_start = DWT->CYCCNT;
     priority = icer_pow_uint(2, stages);
     for (uint8_t lsb = 0;lsb < ICER_BITPLANES_TO_COMPRESS_16;lsb++) {
         for (int chan = ICER_CHANNEL_MIN;chan <= ICER_CHANNEL_MAX;chan++) {
@@ -470,7 +511,13 @@ int icer_compress_image_yuv_uint16(uint16_t *y_channel, uint16_t *u_channel, uin
             }
         }
     }
+    // SECTION 4 PROFILING END
+    icer_profile_end = DWT->CYCCNT;
+    section4_profile = icer_profile_end - icer_profile_start;
 
+
+    // SECTION 5 PROFILING START
+    icer_profile_start = DWT->CYCCNT;
     partition_param_typdef partition_params;
     uint16_t *data_chan[ICER_CHANNEL_MAX+1];
     data_chan[ICER_CHANNEL_Y] = y_channel;
@@ -507,6 +554,13 @@ int icer_compress_image_yuv_uint16(uint16_t *y_channel, uint16_t *u_channel, uin
         }
     }
 
+    // SECTION 5 PROFILING END
+    icer_profile_end = DWT->CYCCNT;
+    section5_profile = icer_profile_end - icer_profile_start;
+
+    // SECTION 6 PROFILING START
+    icer_profile_start = DWT->CYCCNT;
+
     size_t rearrange_offset = 0;
     size_t len;
     for (int k = 0;k <= ICER_MAX_SEGMENTS;k++) {
@@ -529,6 +583,14 @@ int icer_compress_image_yuv_uint16(uint16_t *y_channel, uint16_t *u_channel, uin
         }
     }
 
+
+    // SECTION 6 PROFILING END
+    icer_profile_end = DWT->CYCCNT;
+    section6_profile = icer_profile_end - icer_profile_start;
+
+    // SECTION 6 PROFILING END
+    outer_end = DWT->CYCCNT;
+    outer_total = (uint64_t)(outer_end - outer_start);
     return res;
 }
 #endif

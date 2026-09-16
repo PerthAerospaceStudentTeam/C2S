@@ -291,12 +291,19 @@ int icer_decompress_partition_uint8(uint8_t * const data, const partition_param_
 #endif
 
 #ifdef USE_UINT16_FUNCTIONS
+uint64_t section_5_1_profile;
+uint64_t section_5_2_profile;
+uint64_t section_5_3_profile;
+uint64_t section_5_4_profile;
 
+extern uint64_t icer_profile_start;
+extern uint64_t icer_profile_end;
 #ifdef USE_ENCODE_FUNCTIONS
 int icer_compress_partition_uint16(const uint16_t *data, const partition_param_typdef *params, size_t rowstride,
                                    const icer_packet_context_typedef *pkt_context, icer_image_metadata_typedef *metadata,
                                    icer_output_data_buf_typedef *output_data, const icer_image_segment_typedef *segments_encoded[]) {
-    int res;
+
+	int res;
     size_t segment_w, segment_h;
     const uint16_t *segment_start;
     uint16_t segment_num = 0;
@@ -314,6 +321,7 @@ int icer_compress_partition_uint16(const uint16_t *data, const partition_param_t
      * process top region which consists of c columns
      * height of top region is h_t and it contains r_t rows
      */
+    icer_profile_start = DWT->CYCCNT;
     for (uint16_t row = 0; row < params->r_t; row++) {
         /*
          * the first r_t0 rows have height y_t
@@ -356,11 +364,14 @@ int icer_compress_partition_uint16(const uint16_t *data, const partition_param_t
         }
         partition_row_ind += segment_h;
     }
+    icer_profile_end = DWT->CYCCNT;
+    section_5_1_profile = icer_profile_end - icer_profile_start;
 
     /*
      * if the bottom region exists, process bottom region
      * which consists of c+1 columns
      */
+    icer_profile_start = DWT->CYCCNT;
     for (uint16_t row = 0; row < (params->r - params->r_t); row++) {
         /*
          * the first r_b0 rows have height y_b
@@ -403,6 +414,8 @@ int icer_compress_partition_uint16(const uint16_t *data, const partition_param_t
         }
         partition_row_ind += segment_h;
     }
+    icer_profile_end = DWT->CYCCNT;
+    section_5_2_profile = icer_profile_end - icer_profile_start;
 
     return ICER_RESULT_OK;
 }

@@ -469,20 +469,14 @@
         logEvent("IMAGE_REQUESTED", "", `Res: ${resVal}, Mode: ${colVal}`);
 
         if (port.writable) {
+            const colourByte = colVal === "RGB565" ? 0 : colVal === "Grayscale" ? 1 : 2;
+            const resByte = resVal === "VGA" ? 0 : 1;
+            const patternByte = document.getElementById('testPatternCheck').checked ? 1 : 0;
+
+            const packet = new Uint8Array([255, colourByte, resByte, patternByte, 254]);
+
             const writer = port.writable.getWriter();
-            await writer.write(new Uint8Array([255]));
-
-            if (colVal === "RGB565")         { await writer.write(new Uint8Array([0])); }
-            else if (colVal === "Grayscale") { await writer.write(new Uint8Array([1])); }
-            else if (colVal === "YCbCr")     { await writer.write(new Uint8Array([2])); }
-
-            if (resVal === "VGA")  { await writer.write(new Uint8Array([0])); }
-            else if (resVal === "QVGA") { await writer.write(new Uint8Array([1])); }
-
-            const isPatternEnabled = document.getElementById('testPatternCheck').checked;
-            await writer.write(new Uint8Array([isPatternEnabled ? 1 : 0]));
-            await writer.write(new Uint8Array([254]));
-
+            await writer.write(packet);
             writer.releaseLock();
         }
     }

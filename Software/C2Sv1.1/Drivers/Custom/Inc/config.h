@@ -14,7 +14,7 @@
 #define USB_MODE 				1
 #define SLAVE_MODE 				2
 
-// ------------ USER INPUT STARTS HERE ------------
+// ------------ CONFIGURATION INPUT STARTS HERE ------------
 
 #define VERIFY_CFG 				0					// (0) Don't; (1) Do
 
@@ -22,7 +22,12 @@
 
 #define CSA_ACTIVE				1					// (0) Off; (1) On
 
-// ------------ USER INPUT ENDS HERE ------------
+// ------------ CONFIGURATION ENDS HERE ------------
+
+// ------------ SYSTEM INPUT STARTS HERE ------------
+
+// 5050 RGB LED
+#define RGB_TIM					htim17
 
 // CSA
 #define SHUNT_RESISTANCE 		1.6f
@@ -43,5 +48,7 @@
 #define DB_ROWS					4
 #define DB_SIZE_BYTES 			(IMAGE_COLS*DB_ROWS*2) // 320 columns, 1 row, 2 bytes per pixel
 #define DB_SIZE_WORDS 			(DB_SIZE_BYTES / 4)
+
+// ------------ SYSTEM INPUT ENDS HERE ------------
 
 #endif /* CUSTOM_INC_CONFIG_H_ */

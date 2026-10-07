@@ -24,6 +24,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "dashboard.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,18 +56,25 @@ SD_HandleTypeDef hsd2;
 
 SPI_HandleTypeDef hspi3;
 
+TIM_HandleTypeDef htim17;
+
 UART_HandleTypeDef huart8;
 
 NOR_HandleTypeDef hnor1;
 
 /* USER CODE BEGIN PV */
 
-/// --- QSPI ---
-QSPI_HandleTypeDef QSPI_Memory;
+// --- QSPI ---
+//QSPI_HandleTypeDef QSPI_Memory;
 OSPI_RegularCmdTypeDef sCommand;
 
 // --- INA219 ---
 INA219_HandleTypeDef INA219_Chip;
+
+// USB CDC
+extern uint8_t recvDone;
+extern uint8_t recvLen;
+extern uint8_t UserRxBufferHS[APP_RX_DATA_SIZE];
 
 /* USER CODE END PV */
 
@@ -82,6 +91,7 @@ static void MX_OCTOSPI1_Init(void);
 static void MX_SDMMC2_SD_Init(void);
 static void MX_SPI3_Init(void);
 static void MX_UART8_Init(void);
+static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -136,13 +146,14 @@ int main(void)
   MX_UART8_Init();
   MX_FATFS_Init();
   MX_USB_DEVICE_Init();
+  MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
 
   // ----------------------- QSPI -----------------------
 //  QSPI_Init_Memory(&hospi1, &sCommand, &QSPI_Memory);
 //  uint8_t data = 0;
 //  QSPI_DataBlock_HandleTypeDef DataBlock;
-//  QSPI_Init_DataBlock(&DataBlock, sizeof(data), NULL, &data);
+//  QSPI_Init_DataBlock(&DataBlock, sizeof(data), NULL, &data);d
 //  DataBlock.address_block_start = 0x1000;
 //  DataBlock.address_block_end = 0x1001;
 //  QSPI_Read_Data(&QSPI_Memory, &DataBlock);
@@ -152,79 +163,93 @@ int main(void)
 //  INA219_ReadAll(&INA219_Chip);
 
   // ----------------------- DCMI -----------------------
-//  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-//  OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
-//  OV7670_Config(0, 1, 1);
-//  HAL_Delay(250);
-//  #define IMAGE_SIZE (320*240*2)
-//  ALIGN_32BYTES(uint32_t pBuffer[IMAGE_SIZE]);
-//  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, (uint32_t)pBuffer, IMAGE_SIZE/4);
-//  HAL_Delay(250);
+  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(DCMI_RESET_GPIO_Port, DCMI_RESET_Pin, GPIO_PIN_SET);
+  OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
+  OV7670_Config(0, 1, 0);
+  HAL_Delay(250);
+  #define IMAGE_SIZE_BYTES (320*240*2)
+  #define IMAGE_SIZE_WORDS (IMAGE_SIZE_BYTES/4)
+  #define ROW_BYTES (320 * 2)
+  ALIGN_32BYTES(uint32_t pBuffer[IMAGE_SIZE_WORDS]);
+  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
+  HAL_Delay(250);
+
+  // ----------------------- USB CDC -----------------------
+//  CDC_Transmit_HS((uint8_t *)"Hello World\n", 12);
 
   // ----------------------- FMC -----------------------
-//	#define NOR_BANK_ADDR    ((uint32_t)0x60000000)
-//	#define NOR_AMD_FUJITSU_COMMAND_SET           (uint16_t)0x0002 /* Supported in this driver */
+//	#define NOR_BANK_ADDR    				((uint32_t)0x60000000)
+//	#define NOR_AMD_FUJITSU_COMMAND_SET		(uint16_t)0x0002
 //
-//	uint32_t write_address = 0x00001000;
-//	uint16_t data_word = 'y';
-//	HAL_StatusTypeDef status;
-//	uint8_t fmc_status;
-//	hnor1.CommandSet = NOR_AMD_FUJITSU_COMMAND_SET;
+//	// Setup Information
+//	uint32_t write_address = 0x00002000;
+//  	uint16_t data_word = 'y';
+//  	HAL_StatusTypeDef status;
+//  	uint8_t fmc_status;
+//  	hnor1.CommandSet = NOR_AMD_FUJITSU_COMMAND_SET;
 //
-//	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
-//	HAL_GPIO_WritePin(FMC_NR_GPIO_Port, FMC_NR_Pin, GPIO_PIN_SET);
-//	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
+//  	// Pull NRST High (Bring out of Reset)
+//  	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
+//  	HAL_GPIO_WritePin(FMC_NR_GPIO_Port, FMC_NR_Pin, GPIO_PIN_SET);
+//  	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
 //
-//	status = HAL_NOR_WriteOperation_Enable(&hnor1);
+//  	// Set NOR struct to READY status
+//  	hnor1.Init.WriteOperation = FMC_WRITE_OPERATION_ENABLE;
+//  	status = HAL_NOR_WriteOperation_Enable(&hnor1);
 //
-//	status = HAL_NOR_Erase_Block(&hnor1, write_address, NOR_BANK_ADDR);
-//	HAL_Delay(1000);
+//  	// Clear the target block address to write fresh data
+//  	status = HAL_NOR_Erase_Block(&hnor1, write_address, NOR_BANK_ADDR);
+//  	HAL_Delay(1000);
 //
-//	// Write
-//	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
-//	status = HAL_NOR_Program(&hnor1, (uint32_t *)(NOR_BANK_ADDR + write_address), &data_word);
+//  	// Write data
+//  	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
+//  	status = HAL_NOR_Program(&hnor1, (uint32_t *)(NOR_BANK_ADDR + write_address), &data_word);
 //
-//	//status = HAL_NOR_WriteOperation_Disable(&hnor1);
-//	status = HAL_NOR_ReturnToReadMode(&hnor1);
+//  	// Change from Writing mode to Read mode
+//  	//status = HAL_NOR_WriteOperation_Disable(&hnor1);
+//  	status = HAL_NOR_ReturnToReadMode(&hnor1);
 //
-//	// Read
-//	uint16_t verify_val;
-//	status = HAL_NOR_Read(&hnor1, (uint32_t *)(NOR_BANK_ADDR + write_address), &verify_val);
+//  	// Read the written data back
+//  	uint16_t verify_val;
+//  	status = HAL_NOR_Read(&hnor1, (uint32_t *)(NOR_BANK_ADDR + write_address), &verify_val);
 //
-//	NOR_IDTypeDef nor_id;
-//	status = HAL_NOR_Read_ID(&hnor1, &nor_id);
+//  	// Read the manufacturer ID to the NOR Struct
+//  	NOR_IDTypeDef nor_id;
+//  	status = HAL_NOR_Read_ID(&hnor1, &nor_id);
 //
-//	status = HAL_NOR_WriteOperation_Disable(&hnor1);
-//	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
+//  	// Protect the NOR struct to PROTECTED
+//  	status = HAL_NOR_WriteOperation_Disable(&hnor1);
+//  	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
 //	// Leave NRST High
 
   /// ----------------------- SDMMC -----------------------
-  FATFS SDFatFS;    /* File system object for SD logical drive */
-  FIL MyFile;       /* File object */
-  FRESULT res;      /* FatFS function common result code */
-  UINT bytesWritten;/* File write count */
-  char path[4];     /* SD logical drive path */
-
-  res = f_mount(&SDFatFS, (TCHAR const*)SDPath, 1); // 1 = Mount immediately
-  if (res != FR_OK) {
-      // Error handling
-  }
-
-  res = f_open(&MyFile, "test.txt", FA_WRITE | FA_CREATE_ALWAYS);
-  if (res != FR_OK) {
-      // Handle error (e.g., file system locked or write-protected)
-  }
-
-  char textBuffer[] = "Hello world from STM32H7 FatFS!\r\n";
-
-  res = f_write(&MyFile, textBuffer, sizeof(textBuffer) - 1, &bytesWritten);
-
-  if (res == FR_OK && bytesWritten == (sizeof(textBuffer) - 1)) {
-      // Success: File successfully written
-  }
-
-  // Always close the file to flush buffers to the SD card/flash
-  f_close(&MyFile);
+//  FATFS SDFatFS;    /* File system object for SD logical drive */
+//  FIL MyFile;       /* File object */
+//  FRESULT res;      /* FatFS function common result code */
+//  UINT bytesWritten;/* File write count */
+//  char path[4];     /* SD logical drive path */
+//
+//  res = f_mount(&SDFatFS, (TCHAR const*)SDPath, 1); // 1 = Mount immediately
+//  if (res != FR_OK) {
+//      // Error handling
+//  }
+//
+//  res = f_open(&MyFile, "test.txt", FA_WRITE | FA_CREATE_ALWAYS);
+//  if (res != FR_OK) {
+//      // Handle error (e.g., file system locked or write-protected)
+//  }
+//
+//  char textBuffer[] = "Hello world from STM32H7 FatFS!\r\n";
+//
+//  res = f_write(&MyFile, textBuffer, sizeof(textBuffer) - 1, &bytesWritten);
+//
+//  if (res == FR_OK && bytesWritten == (sizeof(textBuffer) - 1)) {
+//      // Success: File successfully written
+//  }
+//
+//  // Always close the file to flush buffers to the SD card/flash
+//  f_close(&MyFile);
 
   /* USER CODE END 2 */
 
@@ -232,6 +257,50 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  if (recvDone == 1)
+	  {
+
+		  // Check if length of received matches expected
+		  if (recvLen != 5) continue;
+
+		  // Check start and end byte
+		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[4] != 0xFE)) continue;
+
+		  // Extract data
+		  uint8_t colour_mode = UserRxBufferHS[1];
+		  uint8_t resolution_mode = UserRxBufferHS[2];
+		  uint8_t test_pattern_mode = UserRxBufferHS[3];
+
+		  // Setup Camera
+		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
+		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode);
+
+		  // --- IMAGE CAPTURE ---
+		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
+
+		  // Block until image captured
+		  while (hdcmi.State != HAL_DCMI_STATE_READY);
+		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
+
+		  // Transmit each row
+		  for (uint32_t offset = 0; offset < IMAGE_SIZE_BYTES; offset += ROW_BYTES)
+		  {
+		      Dashboard_Transmit(0x01, (uint8_t *)pBuffer + offset, ROW_BYTES);
+		  }
+
+		  // Wait & Reset
+		  // HAL_Delay(1000);
+		  recvDone = 0;
+
+	  }
+	  else // Send CSA data
+	  {
+
+
+	  }
+
+	  HAL_Delay(150);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -272,7 +341,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLN = 70;
   RCC_OscInitStruct.PLL.PLLP = 2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
-  RCC_OscInitStruct.PLL.PLLR = 4;
+  RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
@@ -319,15 +388,15 @@ void PeriphCommonClock_Config(void)
                               |RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_SDMMC;
   PeriphClkInitStruct.PLL2.PLL2M = 2;
   PeriphClkInitStruct.PLL2.PLL2N = 11;
-  PeriphClkInitStruct.PLL2.PLL2P = 2;
-  PeriphClkInitStruct.PLL2.PLL2Q = 2;
+  PeriphClkInitStruct.PLL2.PLL2P = 1;
+  PeriphClkInitStruct.PLL2.PLL2Q = 1;
   PeriphClkInitStruct.PLL2.PLL2R = 1;
   PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_3;
   PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
   PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
   PeriphClkInitStruct.PLL3.PLL3M = 2;
   PeriphClkInitStruct.PLL3.PLL3N = 12;
-  PeriphClkInitStruct.PLL3.PLL3P = 2;
+  PeriphClkInitStruct.PLL3.PLL3P = 1;
   PeriphClkInitStruct.PLL3.PLL3Q = 3;
   PeriphClkInitStruct.PLL3.PLL3R = 2;
   PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_3;
@@ -558,6 +627,42 @@ static void MX_SPI3_Init(void)
 }
 
 /**
+  * @brief TIM17 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM17_Init(void)
+{
+
+  /* USER CODE BEGIN TIM17_Init 0 */
+
+  /* USER CODE END TIM17_Init 0 */
+
+  /* USER CODE BEGIN TIM17_Init 1 */
+
+  /* USER CODE END TIM17_Init 1 */
+  htim17.Instance = TIM17;
+  htim17.Init.Prescaler = 1;
+  htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim17.Init.Period = 45-1;
+  htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim17.Init.RepetitionCounter = 0;
+  htim17.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim17) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_OnePulse_Init(&htim17, TIM_OPMODE_SINGLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM17_Init 2 */
+
+  /* USER CODE END TIM17_Init 2 */
+
+}
+
+/**
   * @brief UART8 Initialization Function
   * @param None
   * @retval None
@@ -772,13 +877,13 @@ void MPU_Config(void)
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
   MPU_InitStruct.BaseAddress = 0x60000000;
   MPU_InitStruct.Size = MPU_REGION_SIZE_8MB;
-  MPU_InitStruct.SubRegionDisable = 0x87;
+  MPU_InitStruct.SubRegionDisable = 0x00;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
   MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
   MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
   /* Enables the MPU */

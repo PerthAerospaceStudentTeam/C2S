@@ -724,6 +724,10 @@
     }
 
     async function readLoop() {
+        // High-performance flat array buffer instead of standard JS array
+        let buffer = new Uint8Array(409600); // 400KB allocation to safely hold full frames
+        let bufferLength = 0;
+
         while (port && port.readable && keepReading) {
             try {
                 reader = port.readable.getReader();
@@ -731,37 +735,64 @@
                     const { value, done } = await reader.read();
                     if (done || !keepReading) break;
 
-                    for (let i = 0; i < value.length; i++) {
-                        byteBuffer.push(value[i]);
+                    // Double buffer size if incoming data exceeds capacity
+                    if (bufferLength + value.length > buffer.length) {
+                        let newBuffer = new Uint8Array((bufferLength + value.length) * 2);
+                        newBuffer.set(buffer.subarray(0, bufferLength));
+                        buffer = newBuffer;
                     }
 
-                    while (byteBuffer.length >= 8) {
-                        if (byteBuffer[0] !== 0x55 || byteBuffer[1] !== 0xAA) {
-                            byteBuffer.shift();
+                    // Fast binary copy of incoming chunk into flat buffer
+                    buffer.set(value, bufferLength);
+                    bufferLength += value.length;
+
+                    let cursor = 0;
+
+                    // Process all complete packets in the buffer
+                    while (bufferLength - cursor >= 8) {
+                        // Find Sync Word 0x55, 0xAA
+                        if (buffer[cursor] !== 0x55 || buffer[cursor + 1] !== 0xAA) {
+                            cursor++;
                             continue;
                         }
 
-                        const packetId = byteBuffer[2];
-                        const length = (byteBuffer[3] & 0xFF) | 
-                                       ((byteBuffer[4] & 0xFF) << 8) | 
-                                       ((byteBuffer[5] & 0xFF) << 16) | 
-                                       (((byteBuffer[6] & 0xFF) << 24) >>> 0);
+                        // Read 32-bit Little-Endian Length safely
+                        const packetId = buffer[cursor + 2];
+                        const length = (buffer[cursor + 3] & 0xFF) | 
+                                       ((buffer[cursor + 4] & 0xFF) << 8) | 
+                                       ((buffer[cursor + 5] & 0xFF) << 16) | 
+                                       (((buffer[cursor + 6] & 0xFF) << 24) >>> 0);
                                        
                         const totalPacketLength = 7 + length + 1; 
 
-                        if (byteBuffer.length < totalPacketLength) {
+                        // If the full payload hasn't completely arrived yet, stop parsing
+                        if (bufferLength - cursor < totalPacketLength) {
                             break; 
                         }
 
-                        if (byteBuffer[7 + length] === 0xBB) {
-                            const payload = new Uint8Array(byteBuffer.slice(7, 7 + length));
+                        // Validate the tail footer byte (0xBB)
+                        if (buffer[cursor + 7 + length] === 0xBB) {
+                            // Zero-copy slice pass directly to your packet dispatcher
+                            const payload = buffer.subarray(cursor + 7, cursor + 7 + length);
                             dispatchValidatedPacket(packetId, payload);
                         }
 
-                        byteBuffer.splice(0, totalPacketLength);
+                        // Advance the cursor past the processed packet
+                        cursor += totalPacketLength;
+                    }
+
+                    // Shift unparsed fragments to the front of the array (Zero-Copy cleanup)
+                    if (cursor > 0) {
+                        if (cursor < bufferLength) {
+                            buffer.copyWithin(0, cursor, bufferLength);
+                            bufferLength -= cursor;
+                        } else {
+                            bufferLength = 0;
+                        }
                     }
                 }
             } catch (err) {
+                // Keep minimal error tracking intact for unexpected link drops
                 console.error(err);
             } finally {
                 if (reader) {
@@ -770,6 +801,8 @@
             }
         }
     }
+
+
 </script>
 
 </body>

@@ -278,6 +278,7 @@ int main(void)
 
 		  uint32_t image_size = (resolution_mode == 0) ? VGA_IMAGE_SIZE_BYTES : QVGA_IMAGE_SIZE_BYTES;
 		  uint32_t row_size = (resolution_mode == 0) ? VGA_ROW_BYTES: QVGA_ROW_BYTES;
+		  uint32_t buffer_size = row_size * 60; // 60 rows at a time
 
 		  // Setup Camera
 		  ALIGN_32BYTES(uint32_t pBuffer[image_size/4]);
@@ -297,9 +298,9 @@ int main(void)
 		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
 
 		  // Transmit each row
-		  for (uint32_t offset = 0; offset < image_size; offset += row_size)
+		  for (uint32_t offset = 0; offset < image_size; offset += buffer_size)
 		  {
-		      Dashboard_Transmit(0x01, (uint8_t *)pBuffer + offset, row_size);
+		      Dashboard_Transmit(IMAGE_PACKET_ID, (uint8_t *)pBuffer + offset, buffer_size);
 		  }
 
 		  // Wait & Reset
@@ -311,7 +312,7 @@ int main(void)
 	  {
 		  INA219_ReadAll(&INA219_Chip);
 		  uint16_t power_to_send = INA219_Chip.power_mW;
-		  Dashboard_Transmit(0x02, (uint8_t *)&power_to_send, sizeof(uint16_t));
+		  Dashboard_Transmit(POWER_PACKET_ID, (uint8_t *)&power_to_send, sizeof(uint16_t));
 
 		  // Short delay so the dashboard is readable
 		  HAL_Delay(150);

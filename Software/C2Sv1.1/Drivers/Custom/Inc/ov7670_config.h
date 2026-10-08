@@ -1,7 +1,7 @@
 /*
  * ov7670Reg.h
  *
- *  Created on: 2017/08/25
+ *  Created on: 8/10/2026
  *      Author: felix
  */
 
@@ -15,8 +15,8 @@
 
 const uint8_t System_Config[][2] = {
 
-		{OV7670_MVFP_ADDRESS, 0x01}, 		// H Flip
-		{OV7670_CLKRC_ADDRESS, 0xC0}, // Use external MCLK from STM32
+		{OV7670_MVFP_ADDRESS, 0x01}, 		// Nothing. Bit [1:0] reserved as 01.
+		{OV7670_CLKRC_ADDRESS, 0xC0}, 		// Use external MCLK from STM32
 
 //		{0x0C, 0x04},  // DCW enable
 //		{0x3E, 0x19},  // manual scaling, pclk/=2
@@ -39,7 +39,7 @@ const uint8_t QVGA_Config[][2] = {
 		{OV7670_VSTOP_ADDRESS, 0x7A},   	// VSTOP
 		{OV7670_VREF_ADDRESS, 0x0A},   		// VREF
 
-		{OV7670_COM4_ADDRESS, 0x00},
+		{OV7670_COM4_ADDRESS, 0x40},
 		{OV7670_COM17_ADDRESS, 0x00},
 
 		{REG_EOF, REG_EOF},
@@ -56,7 +56,7 @@ const uint8_t VGA_Config[][2] = {
 		{OV7670_VSTOP_ADDRESS, 0x7B},   	// VSTOP
 		{OV7670_VREF_ADDRESS, 0x0A},   		// VREF
 
-		{OV7670_COM4_ADDRESS, 0x00},
+		{OV7670_COM4_ADDRESS, 0x40},
 		{OV7670_COM17_ADDRESS, 0x00},
 
 		{REG_EOF, REG_EOF},

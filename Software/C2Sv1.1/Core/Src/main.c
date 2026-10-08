@@ -166,12 +166,17 @@ int main(void)
   HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(DCMI_RESET_GPIO_Port, DCMI_RESET_Pin, GPIO_PIN_SET);
   OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
-  OV7670_Config(0, 1, 0);
-  HAL_Delay(250);
-  #define IMAGE_SIZE_BYTES (320*240*2)
-  #define IMAGE_SIZE_WORDS (IMAGE_SIZE_BYTES/4)
-  #define ROW_BYTES (320 * 2)
-  ALIGN_32BYTES(uint32_t pBuffer[IMAGE_SIZE_WORDS]);
+//  OV7670_Config(0, 1, 0);
+//  HAL_Delay(250);
+
+  #define VGA_IMAGE_SIZE_BYTES (640 * 480 * 2)
+  #define VGA_IMAGE_SIZE_WORDS (VGA_IMAGE_SIZE_BYTES / 4)
+  #define VGA_ROW_BYTES (640 * 2)
+
+  #define QVGA_IMAGE_SIZE_BYTES (VGA_IMAGE_SIZE_BYTES / 4)
+  #define QVGA_IMAGE_SIZE_WORDS (QVGA_IMAGE_SIZE_BYTES / 4)
+  #define QVGA_ROW_BYTES (320 * 2)
+
 //  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
 //  HAL_Delay(250);
 
@@ -271,15 +276,20 @@ int main(void)
 		  uint8_t resolution_mode = UserRxBufferHS[2];
 		  uint8_t test_pattern_mode = UserRxBufferHS[3];
 
+		  uint32_t image_size = (resolution_mode == 0) ? VGA_IMAGE_SIZE_BYTES : QVGA_IMAGE_SIZE_BYTES;
+		  uint32_t row_size = (resolution_mode == 0) ? VGA_ROW_BYTES: QVGA_ROW_BYTES;
+
 		  // Setup Camera
+		  ALIGN_32BYTES(uint32_t pBuffer[image_size/4]);
 		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
 		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode);
+		  HAL_Delay(250); // Config pause time
 
 		  // Block until ready for image capture
 		  while (hdcmi.State != HAL_DCMI_STATE_READY);
 
 		  // --- IMAGE CAPTURE ---
-		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
+		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, image_size/4);
 
 		  // Block until image captured
 		  while (hdcmi.State != HAL_DCMI_STATE_READY);
@@ -287,9 +297,9 @@ int main(void)
 		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
 
 		  // Transmit each row
-		  for (uint32_t offset = 0; offset < IMAGE_SIZE_BYTES; offset += ROW_BYTES)
+		  for (uint32_t offset = 0; offset < image_size; offset += row_size)
 		  {
-		      Dashboard_Transmit(0x01, (uint8_t *)pBuffer + offset, ROW_BYTES);
+		      Dashboard_Transmit(0x01, (uint8_t *)pBuffer + offset, row_size);
 		  }
 
 		  // Wait & Reset
@@ -303,7 +313,7 @@ int main(void)
 		  uint16_t power_to_send = INA219_Chip.power_mW;
 		  Dashboard_Transmit(0x02, (uint8_t *)&power_to_send, sizeof(uint16_t));
 
-		  // Short delay so the dashboard is readible
+		  // Short delay so the dashboard is readable
 		  HAL_Delay(150);
 	  }
 

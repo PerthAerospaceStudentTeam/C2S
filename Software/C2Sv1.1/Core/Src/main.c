@@ -159,8 +159,8 @@ int main(void)
 //  QSPI_Read_Data(&QSPI_Memory, &DataBlock);
 
   // ----------------------- INA219 -----------------------
-//  INA219_Setup(&INA219_Chip, &hi2c1);
-//  INA219_ReadAll(&INA219_Chip);
+  INA219_Setup(&INA219_Chip, &hi2c1);
+  INA219_ReadAll(&INA219_Chip);
 
   // ----------------------- DCMI -----------------------
   HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
@@ -172,8 +172,8 @@ int main(void)
   #define IMAGE_SIZE_WORDS (IMAGE_SIZE_BYTES/4)
   #define ROW_BYTES (320 * 2)
   ALIGN_32BYTES(uint32_t pBuffer[IMAGE_SIZE_WORDS]);
-  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
-  HAL_Delay(250);
+//  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
+//  HAL_Delay(250);
 
   // ----------------------- USB CDC -----------------------
 //  CDC_Transmit_HS((uint8_t *)"Hello World\n", 12);
@@ -275,11 +275,15 @@ int main(void)
 		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
 		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode);
 
+		  // Block until ready for image capture
+		  while (hdcmi.State != HAL_DCMI_STATE_READY);
+
 		  // --- IMAGE CAPTURE ---
-		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
+		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
 
 		  // Block until image captured
 		  while (hdcmi.State != HAL_DCMI_STATE_READY);
+		  HAL_DCMI_Stop(&hdcmi);
 		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
 
 		  // Transmit each row
@@ -295,11 +299,13 @@ int main(void)
 	  }
 	  else // Send CSA data
 	  {
+		  INA219_ReadAll(&INA219_Chip);
+		  uint16_t power_to_send = INA219_Chip.power_mW;
+		  Dashboard_Transmit(0x02, (uint8_t *)&power_to_send, sizeof(uint16_t));
 
-
+		  // Short delay so the dashboard is readible
+		  HAL_Delay(150);
 	  }
-
-	  HAL_Delay(150);
 
     /* USER CODE END WHILE */
 

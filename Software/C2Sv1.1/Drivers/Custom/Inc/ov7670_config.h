@@ -15,14 +15,8 @@
 
 const uint8_t System_Config[][2] = {
 
-		//{OV7670_CLKRC_ADDRESS, 0x80}, 		// pre-scalar = 1/1
 		{OV7670_MVFP_ADDRESS, 0x01}, 		// H Flip
-
-		// Scale PCLK
-		{OV7670_CLKRC_ADDRESS, 0xA7}, // Divide by 40
-//		{OV7670_COM14_ADDRESS, 0x11},
-//		{OV7670_SCALING_PCLK_DIV_ADDRESS, 0x01},
-		//{OV7670_, },
+		{OV7670_CLKRC_ADDRESS, 0xC0}, // Use external MCLK from STM32
 
 //		{0x0C, 0x04},  // DCW enable
 //		{0x3E, 0x19},  // manual scaling, pclk/=2
@@ -73,20 +67,20 @@ const uint8_t RGB565_Config[][2] = {
 		// Colour Configuration
 		{OV7670_RGB444_ADDRESS, 0x00},   	// RGB444 Disable
 		{OV7670_COM15_ADDRESS, 0xD0},   	// RGB565, 00 - FF
-		{OV7670_TSLB_ADDRESS, 0x04},   		// UYVY, Dynamic Resolution Change (bits 1&2 reserved as 01)
+		{OV7670_TSLB_ADDRESS, 0x04},   		// YUYV (bits [2:1] reserved as 01)
 		{OV7670_COM13_ADDRESS, 0x88},   	// Gamma Enable, UV auto adjust, UYVY
-		{OV7670_COM11_ADDRESS, 0xE0},
+		{OV7670_COM11_ADDRESS, 0x00},		// Night Mode Disable
 		{OV7670_RSVD_B0_ADDRESS, OV7670_RSVD_B0_RESET_VALUE}, // DO NOT CLEAR (Inverts colours if removed)
 
 		// AGC, AEC, AWB
-		{OV7670_GAIN_ADDRESS, 0x04},
+		{OV7670_GAIN_ADDRESS, 0x01},
 		{OV7670_COM8_ADDRESS, 0x4A},		// Fast AGC/AEC, AWB Enabled
 		{OV7670_COM9_ADDRESS, 0x4A},   		// AGC Ceiling = 32x
 		{OV7670_COM16_ADDRESS, 0x38},   	// edge enhancement, de-noise, AWG gain enabled
 
 		// Exposure Timing (16-bit controller, MSB to LSB)
 		{OV7670_AECHH_ADDRESS, 0x00}, 	// [5:0]
-		{OV7670_AECH_ADDRESS, 0x06},	// [7:0]
+		{OV7670_AECH_ADDRESS, 0x04},	// [7:0]
 		{OV7670_COM1_ADDRESS, 0x00},	// [1:0]
 
 		// Colour Matrix

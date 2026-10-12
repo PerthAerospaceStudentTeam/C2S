@@ -266,24 +266,26 @@ int main(void)
 	  {
 
 		  // Check if length of received matches expected
-		  if (recvLen != 5) continue;
+		  if (recvLen != 8) continue;
 
 		  // Check start and end byte
-		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[4] != 0xFE)) continue;
+		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[7] != 0xFE)) continue;
 
 		  // Extract data
 		  uint8_t colour_mode = UserRxBufferHS[1];
 		  uint8_t resolution_mode = UserRxBufferHS[2];
 		  uint8_t test_pattern_mode = UserRxBufferHS[3];
+		  uint16_t aec_value = (UserRxBufferHS[4] << 8) + UserRxBufferHS[5];
+		  uint8_t gain_value = UserRxBufferHS[6];
 
 		  uint32_t image_size = (resolution_mode == 0) ? VGA_IMAGE_SIZE_BYTES : QVGA_IMAGE_SIZE_BYTES;
 		  uint32_t row_size = (resolution_mode == 0) ? VGA_ROW_BYTES: QVGA_ROW_BYTES;
-		  uint32_t buffer_size = row_size * 60; // 60 rows at a time
+		  uint32_t buffer_size = row_size * 20; // 20 rows at a time
 
 		  // Setup Camera
 		  ALIGN_32BYTES(uint32_t pBuffer[image_size/4]);
 		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode);
+		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode, aec_value, gain_value);
 		  HAL_Delay(250); // Config pause time
 
 		  // Block until ready for image capture

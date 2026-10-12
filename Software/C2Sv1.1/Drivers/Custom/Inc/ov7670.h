@@ -35,7 +35,7 @@ typedef uint32_t RET;
 #define RET_ERR_MEMORY   0x80000040
 
 RET OV7670_Init(DCMI_HandleTypeDef *p_hdcmi, DMA_HandleTypeDef *p_hdma_dcmi, I2C_HandleTypeDef *p_hi2c);
-RET OV7670_Config(uint8_t colour_mode, uint8_t resolution_mode, uint8_t test_pattern_mode);
+RET OV7670_Config(uint8_t colour_mode, uint8_t resolution_mode, uint8_t test_pattern_mode, uint16_t aec_value, uint8_t gain_value);
 void OV7670_RegisterCallback(void (*cbHsync)(uint32_t h), void (*cbVsync)(uint32_t v));
 
 // Code below is from pinkeee

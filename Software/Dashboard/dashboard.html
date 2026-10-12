@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>C2Sv1.0 Camera & Power Dashboard</title>
+    <title>C2Sv1.1 Camera & Power Dashboard</title>
     <style>
         @font-face {
             font-family: 'JetBrainsMono';
@@ -306,6 +306,34 @@
     </div>
 
     <hr>
+
+    <div class="param-group column">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <label for="exposureInput">AEC Register Value</label>
+                <span class="info-tip" data-help="Sets sensor exposure time.">ⓘ</span>
+            </div>
+            <input type="number" id="exposureInput" min="1" max="65536" value="512" 
+                oninput="exposureSlider.value = Math.log(this.value || 1) / Math.log(65536) * 1000" style="width: 80px; text-align: center;">
+        </div>
+        <input type="range" id="exposureSlider" min="0" max="1000" value="512" 
+            oninput="exposureInput.value = Math.round(Math.exp(this.value / 1000 * Math.log(65536)))">
+    </div>
+
+    <div class="param-group column">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <label for="gainInput">Gain</label>
+                <span class="info-tip" data-help="Sets sensor analog/digital gain.">ⓘ</span>
+            </div>
+            <input type="number" id="gainInput" min="0" max="255" value="160" 
+                oninput="document.getElementById('gainSlider').value = this.value" style="width: 80px; text-align: center;">
+        </div>
+        <input type="range" id="gainSlider" min="0" max="255" value="160" 
+            oninput="document.getElementById('gainInput').value = this.value">
+    </div>
+
+    <hr>
     <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
         <button id="captureBtn" class="btn-capture" onclick="handleCaptureClick()">Send & Capture</button>
     </div>
@@ -472,8 +500,14 @@
             const colourByte = colVal === "RGB565" ? 0 : colVal === "Grayscale" ? 1 : 2;
             const resByte = resVal === "VGA" ? 0 : 1;
             const patternByte = document.getElementById('testPatternCheck').checked ? 1 : 0;
+            const aecVal = Math.round(Math.exp(document.getElementById('exposureSlider').value / 1000 * Math.log(65536)));
+            const aecMsb = (aecVal >> 8) & 0xFF;
+            const aecLsb = aecVal & 0xFF;
+            const gainByte = document.getElementById('gainSlider').value;
 
-            const packet = new Uint8Array([255, colourByte, resByte, patternByte, 254]);
+            const packet = new Uint8Array([255, colourByte, resByte, patternByte, aecMsb, aecLsb, gainByte, 254]);
+
+            console.log(packet);
 
             const writer = port.writable.getWriter();
             await writer.write(packet);

@@ -53,3 +53,12 @@
 /Software/C2Sv*/Core/Startup/*
 
 !/Software/C2Sv*/Core/Startup/startup_*.[sS]
+
+# Middleware
+!/Software/
+!/Software/C2Sv1.1/
+!/Software/C2Sv1.1/USB_DEVICE/
+/Software/C2Sv1.1/USB_DEVICE/*
+!/Software/C2Sv1.1/USB_DEVICE/App/
+/Software/C2Sv1.1/USB_DEVICE/App/*
+!/Software/C2Sv1.1/USB_DEVICE/App/usbd_cdc_if.c

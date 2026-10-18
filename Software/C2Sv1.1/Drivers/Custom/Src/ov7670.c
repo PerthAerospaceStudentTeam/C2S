@@ -89,7 +89,7 @@ RET OV7670_Init(DCMI_HandleTypeDef *p_hdcmi, DMA_HandleTypeDef *p_hdma_dcmi, I2C
   * @param resolution_mode: Defines image resolution (0) VGA; (1) QVGA
   * @param test_pattern_mode: Displays the 8-bar test-pattern with the configured colour and resolution (0) No; (1) Yes.
   */
-RET OV7670_Config(uint8_t colour_mode, uint8_t resolution_mode, uint8_t test_pattern_mode)
+RET OV7670_Config(uint8_t colour_mode, uint8_t resolution_mode, uint8_t test_pattern_mode, uint16_t aec_value, uint8_t gain_value)
 {
 	// PM Declarations
 	#define RGB565			0
@@ -152,6 +152,17 @@ RET OV7670_Config(uint8_t colour_mode, uint8_t resolution_mode, uint8_t test_pat
 			OV7670_Write_Register(Test_Config[i][0], Test_Config[i][1]);
 		}
 	}
+
+	// Set AEC Register (Other bits of AEC registers are default set to 0, so can directly write AEC values without overwriting)
+	uint8_t aechh_register_value = (aec_value >> 10) & 0x3F;
+	uint8_t aech_register_value = (aec_value >> 2) & 0xFF;
+	uint8_t com1_register_value = aec_value & 0x03;
+	OV7670_Write_Register(OV7670_AECHH_ADDRESS, aechh_register_value); 	// Register bits [5:0] => AEC [15:10]
+	OV7670_Write_Register(OV7670_AECH_ADDRESS, aech_register_value); 	// Register bits [7:0] => AEC [9:2]
+	OV7670_Write_Register(OV7670_COM1_ADDRESS, com1_register_value); 	// Register bits [1:0] => AEC [1:0]
+
+	// Set Gain Regsiter
+	OV7670_Write_Register(OV7670_GAIN_ADDRESS, gain_value);
 
   return RET_OK;
 }

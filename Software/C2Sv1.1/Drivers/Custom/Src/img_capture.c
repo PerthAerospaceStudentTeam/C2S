@@ -13,8 +13,15 @@
 
 #define CAM_RGB565			0
 #define CAM_QVGA			1
-#define CAM_SETTLE_MS		300u	// OV7670_Config resets the sensor; let exposure settle
+#define CAM_SETTLE_MS		300u	// OV7670_Config resets the sensor; let it restart
 #define CAM_FRAME_TIMEOUT	1000u
+
+// Exposure is set by hand (ov7670_config.h: COM8 = 0x8C, AEC off, AGC on).
+// PLACEHOLDER: flight values not chosen yet. These are Felix's commented-out
+// defaults in ov7670_config.h (AECH = 0x80 -> AEC = 0x80 << 2; GAIN = 0xA0).
+// With AGC on, the sensor may overwrite the gain value.
+#define CAM_AEC_VALUE		512u
+#define CAM_GAIN_VALUE		0xA0u
 
 extern DCMI_HandleTypeDef hdcmi;
 
@@ -38,7 +45,7 @@ static int wait_dcmi_ready(uint32_t timeout_ms)
 int img_capture_frame(uint32_t *frame, uint8_t test_pattern)
 {
 	HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-	OV7670_Config(CAM_RGB565, CAM_QVGA, test_pattern);
+	OV7670_Config(CAM_RGB565, CAM_QVGA, test_pattern, CAM_AEC_VALUE, CAM_GAIN_VALUE);
 	osDelay(CAM_SETTLE_MS);
 
 	int ret = -1;

@@ -42,9 +42,13 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define IMAGE_SIZE_BYTES (320*240*2)
-#define IMAGE_SIZE_WORDS (IMAGE_SIZE_BYTES/4)
-#define ROW_BYTES (320 * 2)
+#define VGA_IMAGE_SIZE_BYTES (640 * 480 * 2)
+#define VGA_IMAGE_SIZE_WORDS (VGA_IMAGE_SIZE_BYTES / 4)
+#define VGA_ROW_BYTES (640 * 2)
+
+#define QVGA_IMAGE_SIZE_BYTES (VGA_IMAGE_SIZE_BYTES / 4)
+#define QVGA_IMAGE_SIZE_WORDS (QVGA_IMAGE_SIZE_BYTES / 4)
+#define QVGA_ROW_BYTES (320 * 2)
 
 /* USER CODE END PD */
 
@@ -114,7 +118,8 @@ INA219_HandleTypeDef INA219_Chip;
 // --- DCMI ---
 // Static, not a local in main(): FreeRTOS reuses main()'s stack for
 // interrupts once the scheduler starts, so DMA into it would corrupt memory.
-ALIGN_32BYTES(static uint32_t pBuffer[IMAGE_SIZE_WORDS]);
+// Sized for VGA, the largest frame the dashboard requests (614 KB in AXI SRAM).
+ALIGN_32BYTES(static uint32_t pBuffer[VGA_IMAGE_SIZE_WORDS]);
 
 // USB CDC
 extern uint8_t recvDone;
@@ -222,8 +227,9 @@ int main(void)
   HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(DCMI_RESET_GPIO_Port, DCMI_RESET_Pin, GPIO_PIN_SET);
   OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
-  OV7670_Config(0, 1, 0);
-  HAL_Delay(250);
+//  OV7670_Config(0, 1, 0);
+//  HAL_Delay(250);
+
 //  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
 //  HAL_Delay(250);
 
@@ -1024,25 +1030,32 @@ void StartTask04(void *argument)
 	  {
 
 		  // Check if length of received matches expected
-		  if (recvLen != 5) continue;
+		  if (recvLen != 8) continue;
 
 		  // Check start and end byte
-		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[4] != 0xFE)) continue;
+		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[7] != 0xFE)) continue;
 
 		  // Extract data
 		  uint8_t colour_mode = UserRxBufferHS[1];
 		  uint8_t resolution_mode = UserRxBufferHS[2];
 		  uint8_t test_pattern_mode = UserRxBufferHS[3];
+		  uint16_t aec_value = (UserRxBufferHS[4] << 8) + UserRxBufferHS[5];
+		  uint8_t gain_value = UserRxBufferHS[6];
+
+		  uint32_t image_size = (resolution_mode == 0) ? VGA_IMAGE_SIZE_BYTES : QVGA_IMAGE_SIZE_BYTES;
+		  uint32_t row_size = (resolution_mode == 0) ? VGA_ROW_BYTES: QVGA_ROW_BYTES;
+		  uint32_t buffer_size = row_size * 20; // 20 rows at a time
 
 		  // Setup Camera
 		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode);
+		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode, aec_value, gain_value);
+		  osDelay(250); // Config pause time
 
 		  // Block until ready for image capture
 		  while (hdcmi.State != HAL_DCMI_STATE_READY);
 
 		  // --- IMAGE CAPTURE ---
-		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
+		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, image_size/4);
 
 		  // Block until image captured
 		  while (hdcmi.State != HAL_DCMI_STATE_READY);
@@ -1050,9 +1063,9 @@ void StartTask04(void *argument)
 		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
 
 		  // Transmit each row
-		  for (uint32_t offset = 0; offset < IMAGE_SIZE_BYTES; offset += ROW_BYTES)
+		  for (uint32_t offset = 0; offset < image_size; offset += buffer_size)
 		  {
-		      Dashboard_Transmit(0x01, (uint8_t *)pBuffer + offset, ROW_BYTES);
+		      Dashboard_Transmit(IMAGE_PACKET_ID, (uint8_t *)pBuffer + offset, buffer_size);
 		  }
 
 		  // Wait & Reset
@@ -1064,9 +1077,9 @@ void StartTask04(void *argument)
 	  {
 		  INA219_ReadAll(&INA219_Chip);
 		  uint16_t power_to_send = INA219_Chip.power_mW;
-		  Dashboard_Transmit(0x02, (uint8_t *)&power_to_send, sizeof(uint16_t));
+		  Dashboard_Transmit(POWER_PACKET_ID, (uint8_t *)&power_to_send, sizeof(uint16_t));
 
-		  // Short delay so the dashboard is readible
+		  // Short delay so the dashboard is readable
 		  osDelay(150);
 	  }
   }

@@ -18,6 +18,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "FreeRTOS.h"
+#include "cmsis_os2.h"
 #include "fatfs.h"
 #include "usb_device.h"
 
@@ -25,6 +27,10 @@
 /* USER CODE BEGIN Includes */
 
 #include "dashboard.h"
+#include "img_jpeg.h"
+#include "img_store.h"
+#include "img_selftest.h"
+#include "imaging.h"
 
 /* USER CODE END Includes */
 
@@ -35,6 +41,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define IMAGE_SIZE_BYTES (320*240*2)
+#define IMAGE_SIZE_WORDS (IMAGE_SIZE_BYTES/4)
+#define ROW_BYTES (320 * 2)
 
 /* USER CODE END PD */
 
@@ -50,6 +60,8 @@ DMA_HandleTypeDef hdma_dcmi;
 
 I2C_HandleTypeDef hi2c1;
 
+JPEG_HandleTypeDef hjpeg;
+
 OSPI_HandleTypeDef hospi1;
 
 SD_HandleTypeDef hsd2;
@@ -62,6 +74,34 @@ UART_HandleTypeDef huart8;
 
 NOR_HandleTypeDef hnor1;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for comms */
+osThreadId_t commsHandle;
+const osThreadAttr_t comms_attributes = {
+  .name = "comms",
+  .stack_size = 768 * 4,
+  .priority = (osPriority_t) osPriorityAboveNormal,
+};
+/* Definitions for housekeeping */
+osThreadId_t housekeepingHandle;
+const osThreadAttr_t housekeeping_attributes = {
+  .name = "housekeeping",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for imaging */
+osThreadId_t imagingHandle;
+const osThreadAttr_t imaging_attributes = {
+  .name = "imaging",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
 /* USER CODE BEGIN PV */
 
 // --- QSPI ---
@@ -70,6 +110,11 @@ OSPI_RegularCmdTypeDef sCommand;
 
 // --- INA219 ---
 INA219_HandleTypeDef INA219_Chip;
+
+// --- DCMI ---
+// Static, not a local in main(): FreeRTOS reuses main()'s stack for
+// interrupts once the scheduler starts, so DMA into it would corrupt memory.
+ALIGN_32BYTES(static uint32_t pBuffer[IMAGE_SIZE_WORDS]);
 
 // USB CDC
 extern uint8_t recvDone;
@@ -92,6 +137,12 @@ static void MX_SDMMC2_SD_Init(void);
 static void MX_SPI3_Init(void);
 static void MX_UART8_Init(void);
 static void MX_TIM17_Init(void);
+static void MX_JPEG_Init(void);
+void StartDefaultTask(void *argument);
+void StartTask02(void *argument);
+void StartTask03(void *argument);
+void StartTask04(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -114,6 +165,11 @@ int main(void)
 
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
+
+  /* Enable the CPU Cache */
+
+  /* Enable I-Cache---------------------------------------------------------*/
+  SCB_EnableICache();
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -145,8 +201,8 @@ int main(void)
   MX_SPI3_Init();
   MX_UART8_Init();
   MX_FATFS_Init();
-  MX_USB_DEVICE_Init();
   MX_TIM17_Init();
+  MX_JPEG_Init();
   /* USER CODE BEGIN 2 */
 
   // ----------------------- QSPI -----------------------
@@ -168,10 +224,6 @@ int main(void)
   OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
   OV7670_Config(0, 1, 0);
   HAL_Delay(250);
-  #define IMAGE_SIZE_BYTES (320*240*2)
-  #define IMAGE_SIZE_WORDS (IMAGE_SIZE_BYTES/4)
-  #define ROW_BYTES (320 * 2)
-  ALIGN_32BYTES(uint32_t pBuffer[IMAGE_SIZE_WORDS]);
 //  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
 //  HAL_Delay(250);
 
@@ -253,60 +305,55 @@ int main(void)
 
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* creation of comms */
+  commsHandle = osThreadNew(StartTask02, NULL, &comms_attributes);
+
+  /* creation of housekeeping */
+  housekeepingHandle = osThreadNew(StartTask03, NULL, &housekeeping_attributes);
+
+  /* creation of imaging */
+  imagingHandle = osThreadNew(StartTask04, NULL, &imaging_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if (recvDone == 1)
-	  {
-
-		  // Check if length of received matches expected
-		  if (recvLen != 5) continue;
-
-		  // Check start and end byte
-		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[4] != 0xFE)) continue;
-
-		  // Extract data
-		  uint8_t colour_mode = UserRxBufferHS[1];
-		  uint8_t resolution_mode = UserRxBufferHS[2];
-		  uint8_t test_pattern_mode = UserRxBufferHS[3];
-
-		  // Setup Camera
-		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode);
-
-		  // Block until ready for image capture
-		  while (hdcmi.State != HAL_DCMI_STATE_READY);
-
-		  // --- IMAGE CAPTURE ---
-		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
-
-		  // Block until image captured
-		  while (hdcmi.State != HAL_DCMI_STATE_READY);
-		  HAL_DCMI_Stop(&hdcmi);
-		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
-
-		  // Transmit each row
-		  for (uint32_t offset = 0; offset < IMAGE_SIZE_BYTES; offset += ROW_BYTES)
-		  {
-		      Dashboard_Transmit(0x01, (uint8_t *)pBuffer + offset, ROW_BYTES);
-		  }
-
-		  // Wait & Reset
-		  // HAL_Delay(1000);
-		  recvDone = 0;
-
-	  }
-	  else // Send CSA data
-	  {
-		  INA219_ReadAll(&INA219_Chip);
-		  uint16_t power_to_send = INA219_Chip.power_mW;
-		  Dashboard_Transmit(0x02, (uint8_t *)&power_to_send, sizeof(uint16_t));
-
-		  // Short delay so the dashboard is readible
-		  HAL_Delay(150);
-	  }
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -500,6 +547,32 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief JPEG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_JPEG_Init(void)
+{
+
+  /* USER CODE BEGIN JPEG_Init 0 */
+
+  /* USER CODE END JPEG_Init 0 */
+
+  /* USER CODE BEGIN JPEG_Init 1 */
+
+  /* USER CODE END JPEG_Init 1 */
+  hjpeg.Instance = JPEG;
+  if (HAL_JPEG_Init(&hjpeg) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN JPEG_Init 2 */
+
+  /* USER CODE END JPEG_Init 2 */
 
 }
 
@@ -727,7 +800,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Stream0_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 6, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
 
 }
@@ -867,6 +940,142 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* init code for USB_DEVICE */
+  MX_USB_DEVICE_Init();
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartTask02 */
+/**
+* @brief Function implementing the comms thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask02 */
+void StartTask02(void *argument)
+{
+  /* USER CODE BEGIN StartTask02 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartTask02 */
+}
+
+/* USER CODE BEGIN Header_StartTask03 */
+/**
+* @brief Function implementing the housekeeping thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask03 */
+void StartTask03(void *argument)
+{
+  /* USER CODE BEGIN StartTask03 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartTask03 */
+}
+
+/* USER CODE BEGIN Header_StartTask04 */
+/**
+* @brief Function implementing the imaging thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask04 */
+void StartTask04(void *argument)
+{
+  /* USER CODE BEGIN StartTask04 */
+  img_jpeg_init(&hjpeg);
+  img_store_init();		// mounts the SD card; check img_store_ready()
+
+#if IMG_SELFTEST
+  img_selftest_run(pBuffer);
+#endif
+
+#if OPERATIONAL_MODE == USB_MODE
+  // Capture-to-dashboard loop, moved from main(): nothing after
+  // osKernelStart() runs. Regression baseline for v1.1.
+  /* Infinite loop */
+  for(;;)
+  {
+	  if (recvDone == 1)
+	  {
+
+		  // Check if length of received matches expected
+		  if (recvLen != 5) continue;
+
+		  // Check start and end byte
+		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[4] != 0xFE)) continue;
+
+		  // Extract data
+		  uint8_t colour_mode = UserRxBufferHS[1];
+		  uint8_t resolution_mode = UserRxBufferHS[2];
+		  uint8_t test_pattern_mode = UserRxBufferHS[3];
+
+		  // Setup Camera
+		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
+		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode);
+
+		  // Block until ready for image capture
+		  while (hdcmi.State != HAL_DCMI_STATE_READY);
+
+		  // --- IMAGE CAPTURE ---
+		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
+
+		  // Block until image captured
+		  while (hdcmi.State != HAL_DCMI_STATE_READY);
+		  HAL_DCMI_Stop(&hdcmi);
+		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
+
+		  // Transmit each row
+		  for (uint32_t offset = 0; offset < IMAGE_SIZE_BYTES; offset += ROW_BYTES)
+		  {
+		      Dashboard_Transmit(0x01, (uint8_t *)pBuffer + offset, ROW_BYTES);
+		  }
+
+		  // Wait & Reset
+		  // HAL_Delay(1000);
+		  recvDone = 0;
+
+	  }
+	  else // Send CSA data
+	  {
+		  INA219_ReadAll(&INA219_Chip);
+		  uint16_t power_to_send = INA219_Chip.power_mW;
+		  Dashboard_Transmit(0x02, (uint8_t *)&power_to_send, sizeof(uint16_t));
+
+		  // Short delay so the dashboard is readible
+		  osDelay(150);
+	  }
+  }
+#else
+  // Flight: capture -> encode -> store on a fixed cadence. Never returns.
+  imaging_run(pBuffer);
+#endif
+  /* USER CODE END StartTask04 */
+}
 
  /* MPU Configuration */
 

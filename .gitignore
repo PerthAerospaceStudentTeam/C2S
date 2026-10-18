@@ -42,14 +42,24 @@
 !/Software/C2Sv*/Core/Inc/main.h
 !/Software/C2Sv*/Core/Inc/app_threadx.h
 !/Software/C2Sv*/Core/Inc/stm32u5xx_it.h
+!/Software/C2Sv*/Core/Inc/stm32h7xx_it.h
 
 !/Software/C2Sv*/Core/Src/
 /Software/C2Sv*/Core/Src/*
 !/Software/C2Sv*/Core/Src/main.c
 !/Software/C2Sv*/Core/Src/app_threadx.c
 !/Software/C2Sv*/Core/Src/stm32u5xx_it.c
+!/Software/C2Sv*/Core/Src/stm32h7xx_it.c
+!/Software/C2Sv*/Core/Src/freertos.c
 
 !/Software/C2Sv*/Core/Startup/
 /Software/C2Sv*/Core/Startup/*
 
 !/Software/C2Sv*/Core/Startup/startup_*.[sS]
+
+# USB device: CDC receive/transmit hooks live in usbd_cdc_if.c USER CODE
+!/Software/C2Sv*/USB_DEVICE/
+/Software/C2Sv*/USB_DEVICE/*
+!/Software/C2Sv*/USB_DEVICE/App/
+/Software/C2Sv*/USB_DEVICE/App/*
+!/Software/C2Sv*/USB_DEVICE/App/usbd_cdc_if.c

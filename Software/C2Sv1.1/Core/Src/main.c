@@ -31,6 +31,7 @@
 #include "img_store.h"
 #include "img_selftest.h"
 #include "imaging.h"
+#include "comms.h"
 
 /* USER CODE END Includes */
 
@@ -683,7 +684,7 @@ static void MX_SPI3_Init(void)
   hspi3.Instance = SPI3;
   hspi3.Init.Mode = SPI_MODE_SLAVE;
   hspi3.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi3.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi3.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
@@ -977,6 +978,10 @@ void StartDefaultTask(void *argument)
 void StartTask02(void *argument)
 {
   /* USER CODE BEGIN StartTask02 */
+#if OPERATIONAL_MODE == SLAVE_MODE
+  // Serve stored images and the heartbeat to FISH.
+  comms_run();
+#endif
   /* Infinite loop */
   for(;;)
   {
@@ -1021,8 +1026,7 @@ void StartTask04(void *argument)
 #endif
 
 #if OPERATIONAL_MODE == USB_MODE
-  // Capture-to-dashboard loop, moved from main(): nothing after
-  // osKernelStart() runs. Regression baseline for v1.1.
+  // Capture-to-dashboard loop, moved from main(): 
   /* Infinite loop */
   for(;;)
   {

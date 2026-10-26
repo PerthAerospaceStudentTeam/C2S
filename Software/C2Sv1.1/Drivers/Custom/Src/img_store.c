@@ -1,17 +1,6 @@
 /*
  * img_store.c
  *
- * Rolling image store on the SD card. See img_store.h.
- *
- * The index (s_ids) lives in RAM and is rebuilt from the card at boot. It is
- * shared by the imaging task (begin/commit) and the comms task
- * (acquire/release), so it is guarded by s_lock. FatFs itself is reentrant
- * (_FS_REENTRANT), so file operations need no extra locking.
- *
- * Open files: imaging's .TMP plus comms' held .JPG = 2, which is the
- * current _FS_LOCK limit. Anything else that keeps a file open at the same
- * time (e.g. the benchmark harness) needs _FS_LOCK raised in CubeMX.
- *
  *  Created on: 11 Oct 2026
  *      Author: gabe
  */
@@ -19,77 +8,43 @@
 #include "img_store.h"
 #include "fatfs.h"
 #include "cmsis_os2.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-#define STORE_DIR		"IMG"
-#define ID_DIGITS		7			// IMG/0000041.JPG: 10 million ids before wrapping
-#define PATH_LEN		20
-
-_Static_assert(IMG_STORE_DEPTH >= 2, "eviction needs one image besides the held one");
-
-typedef enum { NAME_OTHER, NAME_JPG, NAME_TMP } name_kind_t;
+#define STORE_DIR	"IMG"
+#define TMP_PATH	STORE_DIR "/CURRENT.TMP"
+#define PATH_LEN	20
 
 static osMutexId_t s_lock;
 static uint8_t  s_ready;
-static uint32_t s_ids[IMG_STORE_DEPTH + 1];		// ascending; one spare during commit
+static uint32_t s_ids[IMG_STORE_DEPTH + 1];
 static uint32_t s_count;
 static uint32_t s_next_id;
 
-// The image comms is serving. Only the comms task changes it.
-static struct {
-	uint8_t  active;
-	uint32_t id;
-	uint32_t size;
-	FIL      file;
-} s_hold;
+static uint8_t  s_held;
+static uint32_t s_held_id;
+static FIL      s_held_file;
 
-// Directory scan objects. FILINFO carries a 256-byte long name, so keep it
-// off the task stack.
-static DIR s_dir;
+static DIR     s_dir;
 static FILINFO s_info;
 
-/**
- * @brief  Build "IMG/0000041.JPG" (or .TMP) without printf.
- */
-static void make_path(char *out, uint32_t id, const char *ext)
+static void jpg_path(char *out, uint32_t id)
 {
-	memcpy(out, STORE_DIR "/", 4);
-	for (int i = ID_DIGITS - 1; i >= 0; i--) {
-		out[4 + i] = (char)('0' + (id % 10u));
-		id /= 10u;
-	}
-	out[4 + ID_DIGITS] = '.';
-	memcpy(&out[5 + ID_DIGITS], ext, 4);	// 3 letters + NUL
+	snprintf(out, PATH_LEN, STORE_DIR "/%07lu.JPG", (unsigned long)id);
 }
 
-/**
- * @brief  Recognise "0000041.JPG" / "0000041.TMP". Anything else on the card
- *         is someone else's file and is left alone.
- */
-static name_kind_t parse_name(const char *name, uint32_t *id)
+static int parse_jpg(const char *name, uint32_t *id)
 {
-	uint32_t value = 0;
+	char *end;
 
-	for (int i = 0; i < ID_DIGITS; i++) {
-		if (name[i] < '0' || name[i] > '9') {
-			return NAME_OTHER;
-		}
-		value = value * 10u + (uint32_t)(name[i] - '0');
+	if (strlen(name) != 11 || strcmp(&name[7], ".JPG") != 0) {
+		return 0;
 	}
-	if (name[ID_DIGITS] != '.') {
-		return NAME_OTHER;
-	}
-
-	*id = value;
-	if (strcmp(&name[ID_DIGITS + 1], "JPG") == 0) return NAME_JPG;
-	if (strcmp(&name[ID_DIGITS + 1], "TMP") == 0) return NAME_TMP;
-	return NAME_OTHER;
+	*id = (uint32_t)strtoul(name, &end, 10);
+	return end == &name[7];
 }
 
-/**
- * @brief  During the boot scan: add `id` to the index, keeping only the
- *         newest IMG_STORE_DEPTH ids, in ascending order.
- */
 static void keep_newest(uint32_t id)
 {
 	if (s_count == IMG_STORE_DEPTH) {
@@ -109,88 +64,21 @@ static void keep_newest(uint32_t id)
 	s_count++;
 }
 
-static uint8_t is_indexed(uint32_t id)
+static void evict_oldest(void)
 {
-	for (uint32_t i = 0; i < s_count; i++) {
-		if (s_ids[i] == id) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
-/**
- * @brief  Find one file that should not be on the card: a leftover .TMP, or
- *         a .JPG that did not make the index. Deleting while a directory is
- *         being read is unsafe, so the caller deletes it and calls again.
- *
- * @retval 1 found (path filled in), 0 nothing left, -1 FatFs error
- */
-static int find_stray_file(char *path)
-{
-	int found = 0;
-
-	if (f_opendir(&s_dir, STORE_DIR) != FR_OK) {
-		return -1;
-	}
-
-	for (;;) {
-		if (f_readdir(&s_dir, &s_info) != FR_OK) {
-			found = -1;
-			break;
-		}
-		if (s_info.fname[0] == '\0') {
-			break;
-		}
-
-		uint32_t id;
-		name_kind_t kind = parse_name(s_info.fname, &id);
-		if (kind == NAME_TMP || (kind == NAME_JPG && !is_indexed(id))) {
-			make_path(path, id, (kind == NAME_TMP) ? "TMP" : "JPG");
-			found = 1;
-			break;
-		}
-	}
-
-	f_closedir(&s_dir);
-	return found;
-}
-
-/**
- * @brief  Drop the oldest image that is not being served. Lock held.
- * @retval 1 if one was removed from the index
- */
-static int evict_oldest(void)
-{
-	uint32_t i = 0;
-	while (i < s_count && s_hold.active && s_hold.id == s_ids[i]) {
-		i++;
-	}
-	if (i == s_count) {
-		return 0;
-	}
+	uint32_t i = (s_held && s_ids[0] == s_held_id) ? 1u : 0u;
 
 	char path[PATH_LEN];
-	make_path(path, s_ids[i], "JPG");
-	f_unlink(path);		// if this fails, the next boot's cleanup removes it
+	jpg_path(path, s_ids[i]);
+	f_unlink(path);
 
 	memmove(&s_ids[i], &s_ids[i + 1u], (s_count - i - 1u) * sizeof(s_ids[0]));
 	s_count--;
-	return 1;
 }
 
 store_status_t img_store_init(void)
 {
-	if (s_ready) {
-		return STORE_OK;
-	}
-
-	if (s_lock == NULL) {
-		s_lock = osMutexNew(NULL);
-		if (s_lock == NULL) {
-			return STORE_ERR_NOT_READY;
-		}
-	}
+	s_lock = osMutexNew(NULL);
 
 	if (f_mount(&SDFatFS, (TCHAR const *)SDPath, 1) != FR_OK) {
 		return STORE_ERR_FS;
@@ -201,39 +89,17 @@ store_status_t img_store_init(void)
 		return STORE_ERR_FS;
 	}
 
-	// Pass 1: index the newest images already on the card.
-	s_count = 0;
 	if (f_opendir(&s_dir, STORE_DIR) != FR_OK) {
 		return STORE_ERR_FS;
 	}
-	for (;;) {
-		if (f_readdir(&s_dir, &s_info) != FR_OK) {
-			f_closedir(&s_dir);
-			return STORE_ERR_FS;
-		}
-		if (s_info.fname[0] == '\0') {
-			break;
-		}
+	while (f_readdir(&s_dir, &s_info) == FR_OK && s_info.fname[0] != '\0') {
 		uint32_t id;
-		if (parse_name(s_info.fname, &id) == NAME_JPG) {
+		if (parse_jpg(s_info.fname, &id)) {
 			keep_newest(id);
 		}
 	}
 	f_closedir(&s_dir);
 
-	// Pass 2: delete unfinished .TMPs and images beyond the depth.
-	char path[PATH_LEN];
-	int found;
-	while ((found = find_stray_file(path)) == 1) {
-		if (f_unlink(path) != FR_OK) {
-			return STORE_ERR_FS;
-		}
-	}
-	if (found < 0) {
-		return STORE_ERR_FS;
-	}
-
-	// Carry on numbering after the newest image that survived.
 	s_next_id = (s_count > 0u) ? s_ids[s_count - 1u] + 1u : 0u;
 	s_ready = 1;
 	return STORE_OK;
@@ -251,98 +117,64 @@ uint32_t img_store_count(void)
 
 store_status_t img_store_begin(img_store_slot_t *slot)
 {
-	if (!s_ready) return STORE_ERR_NOT_READY;
-	if (slot == NULL) return STORE_ERR_PARAM;
+	if (!s_ready) {
+		return STORE_ERR_NOT_READY;
+	}
 
-	osMutexAcquire(s_lock, osWaitForever);
 	slot->id = s_next_id++;
-	osMutexRelease(s_lock);
-
-	char path[PATH_LEN];
-	make_path(path, slot->id, "TMP");
-
-	slot->open = 0;
-	if (f_open(&slot->file, path, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) {
+	if (f_open(&slot->file, TMP_PATH, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) {
 		return STORE_ERR_FS;
 	}
-	slot->open = 1;
 	return STORE_OK;
 }
 
 void img_store_abort(img_store_slot_t *slot)
 {
-	if (slot == NULL || !slot->open) {
-		return;
-	}
-
 	f_close(&slot->file);
-	slot->open = 0;
-
-	char path[PATH_LEN];
-	make_path(path, slot->id, "TMP");
-	f_unlink(path);
+	f_unlink(TMP_PATH);
 }
 
 store_status_t img_store_commit(img_store_slot_t *slot)
 {
-	if (!s_ready) return STORE_ERR_NOT_READY;
-	if (slot == NULL || !slot->open) return STORE_ERR_PARAM;
+	char path[PATH_LEN];
+	jpg_path(path, slot->id);
 
-	char tmp[PATH_LEN], jpg[PATH_LEN];
-	make_path(tmp, slot->id, "TMP");
-	make_path(jpg, slot->id, "JPG");
-
-	FRESULT fr = f_close(&slot->file);
-	slot->open = 0;
-	if (fr == FR_OK) {
-		fr = f_rename(tmp, jpg);
-	}
-	if (fr != FR_OK) {
-		f_unlink(tmp);
+	if (f_close(&slot->file) != FR_OK || f_rename(TMP_PATH, path) != FR_OK) {
+		f_unlink(TMP_PATH);
 		return STORE_ERR_FS;
 	}
 
 	osMutexAcquire(s_lock, osWaitForever);
-
-	// Ids are handed out in increasing order and only the imaging task
-	// commits, so appending keeps the index sorted.
 	s_ids[s_count++] = slot->id;
-	while (s_count > IMG_STORE_DEPTH && evict_oldest()) {
+	if (s_count > IMG_STORE_DEPTH) {
+		evict_oldest();
 	}
-
 	osMutexRelease(s_lock);
 	return STORE_OK;
 }
 
-store_status_t img_store_acquire(uint32_t after_id, uint32_t *id, uint32_t *size)
+store_status_t img_store_acquire(uint32_t from_id, uint32_t *id)
 {
-	if (!s_ready) return STORE_ERR_NOT_READY;
-	if (id == NULL || size == NULL) return STORE_ERR_PARAM;
-	if (s_hold.active) return STORE_ERR_BUSY;
-
-	osMutexAcquire(s_lock, osWaitForever);
-
-	uint32_t i = 0;
-	if (after_id != IMG_STORE_FROM_START) {
-		while (i < s_count && s_ids[i] <= after_id) {
-			i++;
-		}
+	if (!s_ready) {
+		return STORE_ERR_NOT_READY;
 	}
 
 	store_status_t st = STORE_ERR_NONE;
-	if (i < s_count) {
-		char path[PATH_LEN];
-		make_path(path, s_ids[i], "JPG");
+	osMutexAcquire(s_lock, osWaitForever);
 
-		if (f_open(&s_hold.file, path, FA_READ) != FR_OK) {
+	for (uint32_t i = 0; i < s_count; i++) {
+		if (s_ids[i] >= from_id) {
+			char path[PATH_LEN];
+			jpg_path(path, s_ids[i]);
+
 			st = STORE_ERR_FS;
-		} else {
-			s_hold.id = s_ids[i];
-			s_hold.size = (uint32_t)f_size(&s_hold.file);
-			s_hold.active = 1;
-			*id = s_hold.id;
-			*size = s_hold.size;
-			st = STORE_OK;
+			if (f_open(&s_held_file, path, FA_READ) == FR_OK) {
+				s_held = 1;
+				s_held_id = s_ids[i];
+				*id = s_held_id;
+				st = STORE_OK;
+			}
+			break;
 		}
 	}
 
@@ -350,41 +182,23 @@ store_status_t img_store_acquire(uint32_t after_id, uint32_t *id, uint32_t *size
 	return st;
 }
 
-store_status_t img_store_read(uint32_t id, uint32_t offset, void *buf, uint32_t len, uint32_t *got)
+store_status_t img_store_read(uint32_t offset, void *buf, uint32_t len, uint32_t *got)
 {
-	if (got == NULL || (buf == NULL && len > 0u)) return STORE_ERR_PARAM;
-	*got = 0;
+	UINT n = 0;
 
-	if (!s_hold.active || s_hold.id != id) {
-		return STORE_ERR_NONE;
-	}
-	if (offset >= s_hold.size) {
-		return STORE_OK;
-	}
-	if (len > s_hold.size - offset) {
-		len = s_hold.size - offset;
+	FRESULT fr = f_lseek(&s_held_file, offset);
+	if (fr == FR_OK) {
+		fr = f_read(&s_held_file, buf, len, &n);
 	}
 
-	UINT read = 0;
-	if (f_lseek(&s_hold.file, offset) != FR_OK ||
-		f_read(&s_hold.file, buf, len, &read) != FR_OK) {
-		return STORE_ERR_FS;
-	}
-
-	*got = read;
-	return STORE_OK;
+	*got = n;
+	return (fr == FR_OK) ? STORE_OK : STORE_ERR_FS;
 }
 
-void img_store_release(uint32_t id)
+void img_store_release(void)
 {
-	if (!s_ready) {
-		return;
-	}
-
 	osMutexAcquire(s_lock, osWaitForever);
-	if (s_hold.active && s_hold.id == id) {
-		f_close(&s_hold.file);
-		s_hold.active = 0;
-	}
+	f_close(&s_held_file);
+	s_held = 0;
 	osMutexRelease(s_lock);
 }

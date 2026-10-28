@@ -7,98 +7,54 @@
 
 #include "rgb_led.h"
 
-static HAL_StatusTypeDef RGB_SendBit(uint8_t bit);
+#define NS_TO_CYC(ns)  ((uint32_t)(((uint64_t)(ns) * SystemCoreClock) / 1000000000ULL))
 
-extern TIM_HandleTypeDef RGB_TIM;
+#define T0H  NS_TO_CYC(320)
+#define T1H  NS_TO_CYC(640)
+#define TBIT NS_TO_CYC(1250)
 
-/**
- * @brief  Executes setup functions in order.
- */
-void RGB_Reset()
+static inline void wait_until(uint32_t t)
 {
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET); // Needs to start high to have falling edge
-
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-
-	HAL_Delay(1); // Wait at least 80us
-
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+    while ((int32_t)(DWT->CYCCNT - t) < 0) { }
 }
 
-/**
- * @brief  Executes setup functions in order.
- *
- * @param red Brightness value of red channel (0-255)
- * @param blue Brightness value of blue channel (0-255)
- * @param green Brightness value of green channel (0-255)
- */
+static uint32_t c_t0h, c_t1h, c_bit;
+
+void RGB_Init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->LAR = 0xC5ACCE55;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    c_t0h = NS_TO_CYC(320);
+    c_t1h = NS_TO_CYC(640);
+    c_bit = NS_TO_CYC(1250);
+
+    LED_GPIO_Port->BSRR = (uint32_t)LED_Pin << 16;   // idle low
+    HAL_Delay(1);                                    // >= 80 us reset before first frame
+
+    RGB_SetColour(0, 0, 0);                          // force LED off
+}
+
 void RGB_SetColour(uint8_t red, uint8_t green, uint8_t blue)
 {
-    RGB_Reset();
+    uint32_t frame = ((uint32_t)green << 16) | ((uint32_t)red << 8) | blue;
+    const uint32_t set_mask = LED_Pin;
+    const uint32_t clr_mask = (uint32_t)LED_Pin << 16;
 
-    // Send Green (8 bits)
-    for (int i = 7; i >= 0; i--) {
-        RGB_SendBit((green >> i) & 0x01);
+    __disable_irq();
+    for (int i = 23; i >= 0; i--)
+    {
+        uint32_t high = ((frame >> i) & 1U) ? c_t1h : c_t0h;  // before timing starts
+
+        uint32_t start = DWT->CYCCNT;
+        LED_GPIO_Port->BSRR = set_mask;
+        while ((DWT->CYCCNT - start) < high) { }
+        LED_GPIO_Port->BSRR = clr_mask;
+        while ((DWT->CYCCNT - start) < c_bit) { }
     }
-    // Send Red (8 bits)
-    for (int i = 7; i >= 0; i--) {
-        RGB_SendBit((red >> i) & 0x01);
-    }
-    // Send Blue (8 bits)
-    for (int i = 7; i >= 0; i--) {
-        RGB_SendBit((blue >> i) & 0x01);
-    }
-}
+    __enable_irq();
 
-/**
- * @brief Sends a single bit (0/1) to the RGB LED
- *
- * @param bit Data to be send 0/1
- *
- * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for bit error
- */
-static HAL_StatusTypeDef RGB_SendBit(uint8_t bit)
-{
-	// Sanity Check
-	if ((bit != 0) && (bit != 1)) return HAL_ERROR;
-
-	// Start rising edge
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-
-	// Start timer
-	RGB_TIM.Instance->RCR = bit;
-	HAL_TIM_Base_Start_IT(&RGB_TIM);
-
-	// Wait until timer stopped
-	while (HAL_TIM_Base_GetState(&RGB_TIM) == HAL_TIM_STATE_BUSY);
-
-	HAL_Delay(1); // Pause between bits
-
-	return HAL_OK;
-}
-
-/**
- * @brief  Re-definition of HAL function for timer interrupt
- *
- * @param *htim HAL timer pointer
- */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-	// Sanity Check
-	if (htim->Instance == RGB_TIM.Instance)
-	{
-		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-
-		HAL_TIM_Base_Stop_IT(htim);
-
-		if (htim->Instance->RCR != 3) // If not in low level time currently
-		{
-			RGB_TIM.Instance->RCR = 3;
-
-			HAL_TIM_Base_Start_IT(&RGB_TIM);
-		}
-
-
-	}
+    HAL_Delay(1);   // >= 80 us low: latch
 }

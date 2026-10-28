@@ -149,6 +149,15 @@ int main(void)
   MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
 
+  // ----------------------- RGB -----------------------
+  RGB_Init();
+  RGB_SetColour(10, 0, 0); // Red -> Red
+  RGB_Init();
+  RGB_SetColour(10, 0, 0); // Red -> Lime
+  RGB_SetColour(0, 10, 0); // Green ->
+  RGB_SetColour(0, 0, 10); // Blue ->
+  RGB_Init();
+
   // ----------------------- QSPI -----------------------
 //  QSPI_Init_Memory(&hospi1, &sCommand, &QSPI_Memory);
 //  uint8_t data = 0;
@@ -162,48 +171,48 @@ int main(void)
   INA219_Setup(&INA219_Chip, &hi2c1);
   INA219_ReadAll(&INA219_Chip);
 
-  FATFS SDFatFS;
-  FIL MyFile;
-  FRESULT res;
-  char filename[32];
-  int file_index = 0;
-  FILINFO fno;
-
-  f_mount(&SDFatFS, (TCHAR const*)SDPath, 1);
-
-  do {
-      sprintf(filename, "data_%d.csv", file_index);
-      file_index++;
-  } while (f_stat(filename, &fno) == FR_OK);
-
-  // Open with FA_OPEN_ALWAYS | FA_WRITE first to check/create and write header if new
-  res = f_open(&MyFile, filename, FA_OPEN_ALWAYS | FA_WRITE);
-  if (f_size(&MyFile) == 0) {
-      f_printf(&MyFile, "Timestamp,BusVoltage(mV),PowerDraw(mW),CurrentDraw(mA)\n");
-  }
-
-  // First 20 rows
-  for (int i = 0; i < 20; i++) {
-      INA219_ReadAll(&INA219_Chip);
-      f_printf(&MyFile, "%lu,%d,%d,%d\n", HAL_GetTick(), (uint16_t)(INA219_Chip.bus_voltage/4), (uint16_t)INA219_Chip.power_mW, (uint16_t)INA219_Chip.current_mA);
-  }
-  f_close(&MyFile);
-
-  HAL_Delay(50);
-
-  // Second write (Appends next 20 rows)
-  f_open(&MyFile, filename, FA_WRITE | FA_OPEN_APPEND);
-
-  for (int i = 0; i < 20; i++) {
-      INA219_ReadAll(&INA219_Chip);
-      f_printf(&MyFile, "%lu,%d,%d,%d\n", HAL_GetTick(), (uint16_t)(INA219_Chip.bus_voltage/4), (uint16_t)INA219_Chip.power_mW, (uint16_t)INA219_Chip.current_mA);
-  }
-  f_close(&MyFile);
-
-  // ----------------------- DCMI -----------------------
-  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(DCMI_RESET_GPIO_Port, DCMI_RESET_Pin, GPIO_PIN_SET);
-  OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
+//  FATFS SDFatFS;
+//  FIL MyFile;
+//  FRESULT res;
+//  char filename[32];
+//  int file_index = 0;
+//  FILINFO fno;
+//
+//  f_mount(&SDFatFS, (TCHAR const*)SDPath, 1);
+//
+//  do {
+//      sprintf(filename, "data_%d.csv", file_index);
+//      file_index++;
+//  } while (f_stat(filename, &fno) == FR_OK);
+//
+//  // Open with FA_OPEN_ALWAYS | FA_WRITE first to check/create and write header if new
+//  res = f_open(&MyFile, filename, FA_OPEN_ALWAYS | FA_WRITE);
+//  if (f_size(&MyFile) == 0) {
+//      f_printf(&MyFile, "Timestamp,BusVoltage(mV),PowerDraw(mW),CurrentDraw(mA)\n");
+//  }
+//
+//  // First 20 rows
+//  for (int i = 0; i < 20; i++) {
+//      INA219_ReadAll(&INA219_Chip);
+//      f_printf(&MyFile, "%lu,%d,%d,%d\n", HAL_GetTick(), (uint16_t)(INA219_Chip.bus_voltage/4), (uint16_t)INA219_Chip.power_mW, (uint16_t)INA219_Chip.current_mA);
+//  }
+//  f_close(&MyFile);
+//
+//  HAL_Delay(50);
+//
+//  // Second write (Appends next 20 rows)
+//  f_open(&MyFile, filename, FA_WRITE | FA_OPEN_APPEND);
+//
+//  for (int i = 0; i < 20; i++) {
+//      INA219_ReadAll(&INA219_Chip);
+//      f_printf(&MyFile, "%lu,%d,%d,%d\n", HAL_GetTick(), (uint16_t)(INA219_Chip.bus_voltage/4), (uint16_t)INA219_Chip.power_mW, (uint16_t)INA219_Chip.current_mA);
+//  }
+//  f_close(&MyFile);
+//
+//  // ----------------------- DCMI -----------------------
+//  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
+//  HAL_GPIO_WritePin(DCMI_RESET_GPIO_Port, DCMI_RESET_Pin, GPIO_PIN_SET);
+//  OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
 //  OV7670_Config(0, 1, 0);
 //  HAL_Delay(250);
 

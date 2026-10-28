@@ -11,8 +11,14 @@
 #include "config.h"
 #include "main.h"
 
-void RGB_Reset();
+// Macros for defined colour states
+#define RGB_Error_Fatal() RGB_SetColour(2,0,0)		// RED
+#define RGB_Error_microSD() RGB_SetColour(2,0,2)	// PURPLE
+#define RGB_Error_Camera() RGB_SetColour(2,1,0)		// ORANGE/YELLOW
+#define RGB_Nominal() RGB_SetColour(0,0,2)			// BLUE
+#define RGB_NominalPaired() RGB_SetColour(0,2,0)	// GREEN
 
+void RGB_Init(void);
 void RGB_SetColour(uint8_t red, uint8_t green, uint8_t blue);
 
 

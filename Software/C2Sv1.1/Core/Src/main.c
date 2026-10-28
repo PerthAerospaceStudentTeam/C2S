@@ -151,12 +151,6 @@ int main(void)
 
   // ----------------------- RGB -----------------------
   RGB_Init();
-  RGB_SetColour(10, 0, 0); // Red -> Red
-  RGB_Init();
-  RGB_SetColour(10, 0, 0); // Red -> Lime
-  RGB_SetColour(0, 10, 0); // Green ->
-  RGB_SetColour(0, 0, 10); // Blue ->
-  RGB_Init();
 
   // ----------------------- QSPI -----------------------
 //  QSPI_Init_Memory(&hospi1, &sCommand, &QSPI_Memory);
@@ -309,63 +303,74 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if (recvDone == 1)
-	  {
+	  RGB_Error_Fatal();
+	  HAL_Delay(1000);
+	  RGB_Error_Camera();
+	  HAL_Delay(1000);
+	  RGB_Error_microSD();
+	  HAL_Delay(1000);
+	  RGB_Nominal();
+	  HAL_Delay(1000);
+	  RGB_NominalPaired();
+	  HAL_Delay(1000);
 
-		  // Check if length of received matches expected
-		  if (recvLen != 8) continue;
-
-		  // Check start and end byte
-		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[7] != 0xFE)) continue;
-
-		  // Extract data
-		  uint8_t colour_mode = UserRxBufferHS[1];
-		  uint8_t resolution_mode = UserRxBufferHS[2];
-		  uint8_t test_pattern_mode = UserRxBufferHS[3];
-		  uint16_t aec_value = (UserRxBufferHS[4] << 8) + UserRxBufferHS[5];
-		  uint8_t gain_value = UserRxBufferHS[6];
-
-		  uint32_t image_size = (resolution_mode == 0) ? VGA_IMAGE_SIZE_BYTES : QVGA_IMAGE_SIZE_BYTES;
-		  uint32_t row_size = (resolution_mode == 0) ? VGA_ROW_BYTES: QVGA_ROW_BYTES;
-		  uint32_t buffer_size = row_size * 20; // 20 rows at a time
-
-		  // Setup Camera
-		  ALIGN_32BYTES(uint32_t pBuffer[image_size/4]);
-		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode, aec_value, gain_value);
-		  HAL_Delay(250); // Config pause time
-
-		  // Block until ready for image capture
-		  while (hdcmi.State != HAL_DCMI_STATE_READY);
-
-		  // --- IMAGE CAPTURE ---
-		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, image_size/4);
-
-		  // Block until image captured
-		  while (hdcmi.State != HAL_DCMI_STATE_READY);
-		  HAL_DCMI_Stop(&hdcmi);
-		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
-
-		  // Transmit each row
-		  for (uint32_t offset = 0; offset < image_size; offset += buffer_size)
-		  {
-		      Dashboard_Transmit(IMAGE_PACKET_ID, (uint8_t *)pBuffer + offset, buffer_size);
-		  }
-
-		  // Wait & Reset
-		  // HAL_Delay(1000);
-		  recvDone = 0;
-
-	  }
-	  else // Send CSA data
-	  {
-		  INA219_ReadAll(&INA219_Chip);
-		  uint16_t power_to_send = INA219_Chip.power_mW;
-		  Dashboard_Transmit(POWER_PACKET_ID, (uint8_t *)&power_to_send, sizeof(uint16_t));
-
-		  // Short delay so the dashboard is readable
-		  HAL_Delay(150);
-	  }
+//	  if (recvDone == 1)
+//	  {
+//
+//		  // Check if length of received matches expected
+//		  if (recvLen != 8) continue;
+//
+//		  // Check start and end byte
+//		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[7] != 0xFE)) continue;
+//
+//		  // Extract data
+//		  uint8_t colour_mode = UserRxBufferHS[1];
+//		  uint8_t resolution_mode = UserRxBufferHS[2];
+//		  uint8_t test_pattern_mode = UserRxBufferHS[3];
+//		  uint16_t aec_value = (UserRxBufferHS[4] << 8) + UserRxBufferHS[5];
+//		  uint8_t gain_value = UserRxBufferHS[6];
+//
+//		  uint32_t image_size = (resolution_mode == 0) ? VGA_IMAGE_SIZE_BYTES : QVGA_IMAGE_SIZE_BYTES;
+//		  uint32_t row_size = (resolution_mode == 0) ? VGA_ROW_BYTES: QVGA_ROW_BYTES;
+//		  uint32_t buffer_size = row_size * 20; // 20 rows at a time
+//
+//		  // Setup Camera
+//		  ALIGN_32BYTES(uint32_t pBuffer[image_size/4]);
+//		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
+//		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode, aec_value, gain_value);
+//		  HAL_Delay(250); // Config pause time
+//
+//		  // Block until ready for image capture
+//		  while (hdcmi.State != HAL_DCMI_STATE_READY);
+//
+//		  // --- IMAGE CAPTURE ---
+//		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, image_size/4);
+//
+//		  // Block until image captured
+//		  while (hdcmi.State != HAL_DCMI_STATE_READY);
+//		  HAL_DCMI_Stop(&hdcmi);
+//		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
+//
+//		  // Transmit each row
+//		  for (uint32_t offset = 0; offset < image_size; offset += buffer_size)
+//		  {
+//		      Dashboard_Transmit(IMAGE_PACKET_ID, (uint8_t *)pBuffer + offset, buffer_size);
+//		  }
+//
+//		  // Wait & Reset
+//		  // HAL_Delay(1000);
+//		  recvDone = 0;
+//
+//	  }
+//	  else // Send CSA data
+//	  {
+//		  INA219_ReadAll(&INA219_Chip);
+//		  uint16_t power_to_send = INA219_Chip.power_mW;
+//		  Dashboard_Transmit(POWER_PACKET_ID, (uint8_t *)&power_to_send, sizeof(uint16_t));
+//
+//		  // Short delay so the dashboard is readable
+//		  HAL_Delay(150);
+//	  }
 
     /* USER CODE END WHILE */
 

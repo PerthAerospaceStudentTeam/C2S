@@ -32,12 +32,6 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include "config.h"
-//#include "AT25xF2561C.h"
-#include "ina219.h"
-#include "ov7670.h"
-#include "rgb_led.h"
-
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/

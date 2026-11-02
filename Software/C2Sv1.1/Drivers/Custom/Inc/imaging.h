@@ -10,6 +10,8 @@
 
 #include "img_jpeg.h"
 
+#include "main.h"
+
 #define IMG_CAPTURE_PERIOD_MS	10000u
 #define IMG_FLIGHT_QUALITY		25
 
@@ -25,6 +27,8 @@ typedef struct {
 
 extern volatile imaging_stats_t g_imaging_stats;
 
-void imaging_run(uint32_t *frame);
+void camera_capture_continuous(uint32_t *frame);
+
+void camera_dashboard_operate();
 
 #endif

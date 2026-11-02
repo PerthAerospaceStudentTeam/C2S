@@ -1,5 +1,5 @@
 /*
- * ina219.h
+ * hcsa.h
  *
  *  Created on: Jun 19, 2026
  *      Author: felix
@@ -15,32 +15,29 @@
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Setup(INA219_HandleTypeDef *INA219, I2C_HandleTypeDef *hi2c_tmp)
+HAL_StatusTypeDef CSA_Setup(CSA_HandleTypeDef *hcsa, I2C_HandleTypeDef *hi2c)
 {
-	INA219->hi2c = hi2c_tmp;
-	INA219_Calculate_Calibration(INA219);
-	INA219_Write_Calibration(INA219);
-	INA219_Read_Calibration(INA219);
-
+	hcsa->hi2c = hi2c;
+	CSA_Calculate_Calibration(hcsa);
+	CSA_Write_Calibration(hcsa);
+	CSA_Read_Calibration(hcsa);
 	return HAL_OK;
 }
 
 /**
- * @brief  Reads INA219 registers into struct
+ * @brief  Reads hcsa registers into struct
  *
  * @param *cal Pointer to INA struct.
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_ReadAll(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_ReadAll(CSA_HandleTypeDef *hcsa)
 {
-	INA219_Read_Bus(INA219);
-	INA219_Read_Shunt(INA219);
-	INA219_Read_Power(INA219);
-	INA219_Read_Current(INA219);
-
-	INA219_Calculate_Draw(INA219);
-
+	CSA_Read_Bus(hcsa);
+	CSA_Read_Shunt(hcsa);
+	CSA_Read_Power(hcsa);
+	CSA_Read_Current(hcsa);
+	CSA_Calculate_Draw(hcsa);
 	return HAL_OK;
 }
 
@@ -51,11 +48,11 @@ HAL_StatusTypeDef INA219_ReadAll(INA219_HandleTypeDef *INA219)
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Calculate_Calibration(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_Calculate_Calibration(CSA_HandleTypeDef *hcsa)
 {
 	float v;
 
-	switch (INA219_GAIN) // Sets voltage according to PG Bit Settings Table 4 https://www.ti.com/lit/ds/symlink/ina219.pdf
+	switch (CSA_GAIN) // Sets voltage according to PG Bit Settings Table 4 https://www.ti.com/lit/ds/symlink/hcsa.pdf
 	{
 		case 1:
 			v = 0.04;
@@ -73,67 +70,53 @@ HAL_StatusTypeDef INA219_Calculate_Calibration(INA219_HandleTypeDef *INA219)
 			return HAL_ERROR;
 	}
 
-	INA219->current_lsb = v / SHUNT_RESISTANCE / (1 << 15);
-	INA219->calibration = (uint16_t)(0.04096 / (INA219->current_lsb * SHUNT_RESISTANCE));
+	hcsa->current_lsb = v / SHUNT_RESISTANCE / (1 << 15);
+	hcsa->calibration = (uint16_t)(0.04096 / (hcsa->current_lsb * SHUNT_RESISTANCE));
 
 	return HAL_OK;
 
 }
 
 /**
- * @brief  Configures the INA219 bus voltage range, PGA gain, ADC resolution
+ * @brief  Configures the hcsa bus voltage range, PGA gain, ADC resolution
  *
  * @param *cal Pointer to INA struct.
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Write_Calibration(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_Write_Calibration(CSA_HandleTypeDef *hcsa)
 {
 
-	if (INA219->calibration == 0x00) { return HAL_ERROR; } // Not calibrated yet or error with calculation
+	if (hcsa->calibration == 0x00) { return HAL_ERROR; } // Not calibrated yet or error with calculation
 
-	if (HAL_I2C_IsDeviceReady((INA219->hi2c), (INA219_ADDRESS << 1), 3, INA219_TIMEOUT) != HAL_OK) {
-	    // Device did not acknowledge (NACK/AF occurred)
-		return HAL_ERROR;
-	}
+	// Device did not acknowledge (NACK/AF occurred)
+	if (HAL_I2C_IsDeviceReady((hcsa->hi2c), (CSA_ADDRESS << 1), 3, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	// Prepare data
 	uint8_t tx_buffer[3];
-	tx_buffer[0] = INA219_REG_CALIBRATION;
-    tx_buffer[1] = (INA219->calibration) >> 8;
-    tx_buffer[2] = (INA219->calibration) & 0xFF;
+	tx_buffer[0] = CSA_REG_CALIBRATION;
+    tx_buffer[1] = (hcsa->calibration) >> 8;
+    tx_buffer[2] = (hcsa->calibration) & 0xFF;
 
-	return HAL_I2C_Master_Transmit((INA219->hi2c), (INA219_ADDRESS << 1), tx_buffer, 3, INA219_TIMEOUT);
+	return HAL_I2C_Master_Transmit((hcsa->hi2c), (CSA_ADDRESS << 1), tx_buffer, 3, CSA_TIMEOUT);
 
 }
 
 /**
- * @brief  Configures the INA219 bus voltage range, PGA gain, ADC resolution
+ * @brief  Configures the hcsa bus voltage range, PGA gain, ADC resolution
  *
  * @param *cal Pointer to INA struct.
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Read_Calibration(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_Read_Calibration(CSA_HandleTypeDef *hcsa)
 {
 
-	if (HAL_I2C_IsDeviceReady((INA219->hi2c), (INA219_ADDRESS << 1), 3, INA219_TIMEOUT) != HAL_OK) {
-	    // Device did not acknowledge (NACK/AF occurred)
-		return HAL_ERROR;
-	}
+	// Device did not acknowledge (NACK/AF occurred)
+	if (HAL_I2C_IsDeviceReady((hcsa->hi2c), (CSA_ADDRESS << 1), 3, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	// Prepare data
 	uint8_t rx_buffer[2]; // First, Second byte
 
-	if (HAL_I2C_Mem_Read((INA219->hi2c), (INA219_ADDRESS << 1), INA219_REG_CALIBRATION, 1, rx_buffer, 2, INA219_TIMEOUT) != HAL_OK)
-	{
-		return HAL_ERROR;
-	}
-
-
-
-	// TBD what to do with received value
-	// ...
+	if (HAL_I2C_Mem_Read((hcsa->hi2c), (CSA_ADDRESS << 1), CSA_REG_CALIBRATION, 1, rx_buffer, 2, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
 	return HAL_OK;
 
@@ -146,26 +129,23 @@ HAL_StatusTypeDef INA219_Read_Calibration(INA219_HandleTypeDef *INA219)
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Read_Bus(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_Read_Bus(CSA_HandleTypeDef *hcsa)
 {
 
-	if (HAL_I2C_IsDeviceReady((INA219->hi2c), (INA219_ADDRESS << 1), 3, INA219_TIMEOUT) != HAL_OK) {
-	    // Device did not acknowledge (NACK/AF occurred)
-		return HAL_ERROR;
-	}
+	// Device did not acknowledge (NACK/AF occurred)
+	if (HAL_I2C_IsDeviceReady((hcsa->hi2c), (CSA_ADDRESS << 1), 3, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	// Prepare data
-	uint8_t rx_buffer[2]; // First, Second byte
+	uint8_t rx_buffer[2];
 
-	if (HAL_I2C_Mem_Read((INA219->hi2c), (INA219_ADDRESS << 1), INA219_REG_BUS_VOLTAGE, 1, rx_buffer, 2, INA219_TIMEOUT) != HAL_OK)
-	{
-		return HAL_ERROR;
-	}
+	if (HAL_I2C_Mem_Read(hcsa->hi2c, (CSA_ADDRESS << 1), CSA_REG_BUS_VOLTAGE, I2C_MEMADD_SIZE_8BIT, rx_buffer, 2, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	INA219->bus_voltage = (uint16_t)(rx_buffer[0] << 8) | rx_buffer[1];
+	uint16_t raw = ((uint16_t)rx_buffer[0] << 8) | rx_buffer[1];
+
+	if (raw & 0x0001) return HAL_ERROR;      // OVF: math overflow, reading not valid
+
+	hcsa->bus_voltage = (raw >> 3) * 4;    // bits 15:3, 4 mV per LSB -> millivolts
 
 	return HAL_OK;
-
 }
 
 /**
@@ -175,23 +155,16 @@ HAL_StatusTypeDef INA219_Read_Bus(INA219_HandleTypeDef *INA219)
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Read_Shunt(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_Read_Shunt(CSA_HandleTypeDef *hcsa)
 {
+	// Device did not acknowledge (NACK/AF occurred)
+	if (HAL_I2C_IsDeviceReady((hcsa->hi2c), (CSA_ADDRESS << 1), 3, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	if (HAL_I2C_IsDeviceReady((INA219->hi2c), (INA219_ADDRESS << 1), 3, INA219_TIMEOUT) != HAL_OK) {
-	    // Device did not acknowledge (NACK/AF occurred)
-		return HAL_ERROR;
-	}
-
-	// Prepare data
 	uint8_t rx_buffer[2]; // First, Second byte
 
-	if (HAL_I2C_Mem_Read((INA219->hi2c), (INA219_ADDRESS << 1), INA219_REG_SHUNT_VOLTAGE, 1, rx_buffer, 2, INA219_TIMEOUT) != HAL_OK)
-	{
-		return HAL_ERROR;
-	}
+	if (HAL_I2C_Mem_Read((hcsa->hi2c), (CSA_ADDRESS << 1), CSA_REG_SHUNT_VOLTAGE, 1, rx_buffer, 2, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	INA219->shunt_voltage = (uint16_t)(rx_buffer[0] << 8) | rx_buffer[1];
+	hcsa->shunt_voltage = (uint16_t)(rx_buffer[0] << 8) | rx_buffer[1];
 
 	return HAL_OK;
 
@@ -204,23 +177,17 @@ HAL_StatusTypeDef INA219_Read_Shunt(INA219_HandleTypeDef *INA219)
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Read_Power(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_Read_Power(CSA_HandleTypeDef *hcsa)
 {
 
-	if (HAL_I2C_IsDeviceReady((INA219->hi2c), (INA219_ADDRESS << 1), 3, INA219_TIMEOUT) != HAL_OK) {
-	    // Device did not acknowledge (NACK/AF occurred)
-		return HAL_ERROR;
-	}
+	// Device did not acknowledge (NACK/AF occurred)
+	if (HAL_I2C_IsDeviceReady((hcsa->hi2c), (CSA_ADDRESS << 1), 3, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	// Prepare data
 	uint8_t rx_buffer[2]; // First, Second byte
 
-	if (HAL_I2C_Mem_Read((INA219->hi2c), (INA219_ADDRESS << 1), INA219_REG_POWER, 1, rx_buffer, 2, INA219_TIMEOUT) != HAL_OK)
-	{
-		return HAL_ERROR;
-	}
+	if (HAL_I2C_Mem_Read((hcsa->hi2c), (CSA_ADDRESS << 1), CSA_REG_POWER, 1, rx_buffer, 2, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	INA219->power = (uint16_t)(rx_buffer[0] << 8) | rx_buffer[1];
+	hcsa->power = (uint16_t)(rx_buffer[0] << 8) | rx_buffer[1];
 
 	return HAL_OK;
 
@@ -233,23 +200,17 @@ HAL_StatusTypeDef INA219_Read_Power(INA219_HandleTypeDef *INA219)
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Read_Current(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_Read_Current(CSA_HandleTypeDef *hcsa)
 {
 
-	if (HAL_I2C_IsDeviceReady((INA219->hi2c), (INA219_ADDRESS << 1), 3, INA219_TIMEOUT) != HAL_OK) {
-	    // Device did not acknowledge (NACK/AF occurred)
-		return HAL_ERROR;
-	}
+	// Device did not acknowledge (NACK/AF occurred)
+	if (HAL_I2C_IsDeviceReady((hcsa->hi2c), (CSA_ADDRESS << 1), 3, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	// Prepare data
 	uint8_t rx_buffer[2]; // First, Second byte
 
-	if (HAL_I2C_Mem_Read((INA219->hi2c), (INA219_ADDRESS << 1), INA219_REG_CURRENT, 1, rx_buffer, 2, INA219_TIMEOUT) != HAL_OK)
-	{
-		return HAL_ERROR;
-	}
+	if (HAL_I2C_Mem_Read((hcsa->hi2c), (CSA_ADDRESS << 1), CSA_REG_CURRENT, 1, rx_buffer, 2, CSA_TIMEOUT) != HAL_OK) return HAL_ERROR;
 
-	INA219->current = (uint16_t)(rx_buffer[0] << 8) | rx_buffer[1];
+	hcsa->current = (uint16_t)(rx_buffer[0] << 8) | rx_buffer[1];
 
 	return HAL_OK;
 
@@ -262,10 +223,9 @@ HAL_StatusTypeDef INA219_Read_Current(INA219_HandleTypeDef *INA219)
  *
  * @retval Confirmation of operation, HAL_OK for successful, HAL_ERROR for unsuccessful
  */
-HAL_StatusTypeDef INA219_Calculate_Draw(INA219_HandleTypeDef *INA219)
+HAL_StatusTypeDef CSA_Calculate_Draw(CSA_HandleTypeDef *hcsa)
 {
-	INA219->current_mA = INA219->current_lsb * INA219->current * 1000;
-	INA219->power_mW = 20 * INA219->current_lsb * INA219->power * 1000;
-
+	hcsa->current_mA = hcsa->current_lsb * hcsa->current * 1000;
+	hcsa->power_mW = 20 * hcsa->current_lsb * hcsa->power * 1000;
 	return HAL_OK;
 }

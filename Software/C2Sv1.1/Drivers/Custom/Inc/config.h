@@ -16,11 +16,7 @@
 
 // ------------ CONFIGURATION INPUT STARTS HERE ------------
 
-#define VERIFY_CFG 				0					// (0) Don't; (1) Do
-
 #define OPERATIONAL_MODE 		USB_MODE
-
-#define CSA_ACTIVE				1					// (0) Off; (1) On
 
 // ------------ CONFIGURATION ENDS HERE ------------
 
@@ -31,8 +27,8 @@
 
 // CSA
 #define SHUNT_RESISTANCE 		1.6f
-#define INA219_GAIN 			8 					// The dividing factor for the gain. Either 1, 2, 4, or 8.
-#define INA219_ADDRESS 			0b1000000 			// A0 = GND, A1 = GND
+#define CSA_GAIN 				8 					// The dividing factor for the gain. Either 1, 2, 4, or 8.
+#define CSA_ADDRESS 			0b1000000 			// A0 = GND, A1 = GND (Hardware defined)
 
 // DCMI
 #define DCMI_PWRDWN_Pin			DCMI_GPIO0_Pin

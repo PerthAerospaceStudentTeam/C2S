@@ -10,7 +10,7 @@
 
 #include "img_jpeg.h"
 
-#define IMG_SELFTEST			1
+#define IMG_SELFTEST			0
 #define IMG_SELFTEST_QUALITY	75
 
 typedef struct {

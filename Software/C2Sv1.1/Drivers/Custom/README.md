@@ -34,7 +34,7 @@ The [INA219BIDR](https://www.ti.com/lit/ds/symlink/ina219.pdf?ts=1790292975610) 
     - `current_lsb`: Calculated current LSB resolution used for unit conversion
     - `calibration`: Value written to the INA219 calibration register
     - `shunt_voltage`: Raw shunt voltage register value
-    - `bus_voltage`: Raw bus voltage register value
+    - `bus_voltage`: Bus voltage (mV)
     - `power`: Raw power register value
     - `current`: Raw current register value
     - `current_mA`: Converted load current in milliamperes (mA)

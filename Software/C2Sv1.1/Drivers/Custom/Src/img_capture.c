@@ -6,7 +6,10 @@
  */
 
 #include "img_capture.h"
+
 #include "cmsis_os2.h"
+#include "ov7670.h"
+#include "config.h"
 
 #define CAM_RGB565			0
 #define CAM_QVGA			1

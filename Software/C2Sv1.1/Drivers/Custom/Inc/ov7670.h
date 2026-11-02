@@ -18,8 +18,13 @@
 
 typedef uint32_t RET;
 
-// 320 * 240 pixels. 2 pixels per word. 4 Bytes per word.
-#define MAX_PICTURE_BUFF (320 * 240 * 2 / 4)
+#define VGA_IMAGE_SIZE_BYTES (640 * 480 * 2)
+#define VGA_IMAGE_SIZE_WORDS (VGA_IMAGE_SIZE_BYTES / 4)
+#define VGA_ROW_BYTES (640 * 2)
+
+#define QVGA_IMAGE_SIZE_BYTES (VGA_IMAGE_SIZE_BYTES / 4)
+#define QVGA_IMAGE_SIZE_WORDS (QVGA_IMAGE_SIZE_BYTES / 4)
+#define QVGA_ROW_BYTES (320 * 2)
 
 #define SLAVE_ADDR 0x42
 
@@ -34,9 +39,11 @@ typedef uint32_t RET;
 #define RET_ERR_FILE     0x80000020
 #define RET_ERR_MEMORY   0x80000040
 
-RET OV7670_Init(DCMI_HandleTypeDef *p_hdcmi, DMA_HandleTypeDef *p_hdma_dcmi, I2C_HandleTypeDef *p_hi2c);
-RET OV7670_Config(uint8_t colour_mode, uint8_t resolution_mode, uint8_t test_pattern_mode, uint16_t aec_value, uint8_t gain_value);
+HAL_StatusTypeDef OV7670_Init(DCMI_HandleTypeDef *p_hdcmi, DMA_HandleTypeDef *p_hdma_dcmi, I2C_HandleTypeDef *p_hi2c);
+HAL_StatusTypeDef OV7670_Config(uint8_t colour_mode, uint8_t resolution_mode, uint8_t test_pattern_mode, uint16_t aec_value, uint8_t gain_value);
 void OV7670_RegisterCallback(void (*cbHsync)(uint32_t h), void (*cbVsync)(uint32_t v));
+
+HAL_StatusTypeDef OV7670_Read_DevID(uint8_t buffer[]);
 
 // Code below is from pinkeee
 

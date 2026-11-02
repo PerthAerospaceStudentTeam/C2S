@@ -32,6 +32,11 @@
 #include "img_selftest.h"
 #include "imaging.h"
 #include "comms.h"
+#include "config.h"
+#include "ina219.h"
+#include "ov7670.h"
+#include "rgb_led.h"
+#include "microSD.h"
 
 /* USER CODE END Includes */
 
@@ -42,14 +47,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
-#define VGA_IMAGE_SIZE_BYTES (640 * 480 * 2)
-#define VGA_IMAGE_SIZE_WORDS (VGA_IMAGE_SIZE_BYTES / 4)
-#define VGA_ROW_BYTES (640 * 2)
-
-#define QVGA_IMAGE_SIZE_BYTES (VGA_IMAGE_SIZE_BYTES / 4)
-#define QVGA_IMAGE_SIZE_WORDS (QVGA_IMAGE_SIZE_BYTES / 4)
-#define QVGA_ROW_BYTES (320 * 2)
 
 /* USER CODE END PD */
 
@@ -109,23 +106,14 @@ const osThreadAttr_t imaging_attributes = {
 };
 /* USER CODE BEGIN PV */
 
-// --- QSPI ---
-//QSPI_HandleTypeDef QSPI_Memory;
-OSPI_RegularCmdTypeDef sCommand;
-
 // --- INA219 ---
-INA219_HandleTypeDef INA219_Chip;
+CSA_HandleTypeDef csa;
 
 // --- DCMI ---
 // Static, not a local in main(): FreeRTOS reuses main()'s stack for
 // interrupts once the scheduler starts, so DMA into it would corrupt memory.
 // Sized for VGA, the largest frame the dashboard requests (614 KB in AXI SRAM).
-ALIGN_32BYTES(static uint32_t pBuffer[VGA_IMAGE_SIZE_WORDS]);
-
-// USB CDC
-extern uint8_t recvDone;
-extern uint8_t recvLen;
-extern uint8_t UserRxBufferHS[APP_RX_DATA_SIZE];
+ALIGN_32BYTES(uint32_t pBuffer[VGA_IMAGE_SIZE_WORDS]);
 
 /* USER CODE END PV */
 
@@ -145,9 +133,9 @@ static void MX_UART8_Init(void);
 static void MX_TIM17_Init(void);
 static void MX_JPEG_Init(void);
 void StartDefaultTask(void *argument);
-void StartTask02(void *argument);
-void StartTask03(void *argument);
-void StartTask04(void *argument);
+void commsTask(void *argument);
+void housekeepingTask(void *argument);
+void imagingTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -211,105 +199,6 @@ int main(void)
   MX_JPEG_Init();
   /* USER CODE BEGIN 2 */
 
-  // ----------------------- QSPI -----------------------
-//  QSPI_Init_Memory(&hospi1, &sCommand, &QSPI_Memory);
-//  uint8_t data = 0;
-//  QSPI_DataBlock_HandleTypeDef DataBlock;
-//  QSPI_Init_DataBlock(&DataBlock, sizeof(data), NULL, &data);d
-//  DataBlock.address_block_start = 0x1000;
-//  DataBlock.address_block_end = 0x1001;
-//  QSPI_Read_Data(&QSPI_Memory, &DataBlock);
-
-  // ----------------------- INA219 -----------------------
-  INA219_Setup(&INA219_Chip, &hi2c1);
-  INA219_ReadAll(&INA219_Chip);
-
-  // ----------------------- DCMI -----------------------
-  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(DCMI_RESET_GPIO_Port, DCMI_RESET_Pin, GPIO_PIN_SET);
-  OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
-//  OV7670_Config(0, 1, 0);
-//  HAL_Delay(250);
-
-//  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, IMAGE_SIZE_WORDS);
-//  HAL_Delay(250);
-
-  // ----------------------- USB CDC -----------------------
-//  CDC_Transmit_HS((uint8_t *)"Hello World\n", 12);
-
-  // ----------------------- FMC -----------------------
-//	#define NOR_BANK_ADDR    				((uint32_t)0x60000000)
-//	#define NOR_AMD_FUJITSU_COMMAND_SET		(uint16_t)0x0002
-//
-//	// Setup Information
-//	uint32_t write_address = 0x00002000;
-//  	uint16_t data_word = 'y';
-//  	HAL_StatusTypeDef status;
-//  	uint8_t fmc_status;
-//  	hnor1.CommandSet = NOR_AMD_FUJITSU_COMMAND_SET;
-//
-//  	// Pull NRST High (Bring out of Reset)
-//  	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
-//  	HAL_GPIO_WritePin(FMC_NR_GPIO_Port, FMC_NR_Pin, GPIO_PIN_SET);
-//  	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
-//
-//  	// Set NOR struct to READY status
-//  	hnor1.Init.WriteOperation = FMC_WRITE_OPERATION_ENABLE;
-//  	status = HAL_NOR_WriteOperation_Enable(&hnor1);
-//
-//  	// Clear the target block address to write fresh data
-//  	status = HAL_NOR_Erase_Block(&hnor1, write_address, NOR_BANK_ADDR);
-//  	HAL_Delay(1000);
-//
-//  	// Write data
-//  	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
-//  	status = HAL_NOR_Program(&hnor1, (uint32_t *)(NOR_BANK_ADDR + write_address), &data_word);
-//
-//  	// Change from Writing mode to Read mode
-//  	//status = HAL_NOR_WriteOperation_Disable(&hnor1);
-//  	status = HAL_NOR_ReturnToReadMode(&hnor1);
-//
-//  	// Read the written data back
-//  	uint16_t verify_val;
-//  	status = HAL_NOR_Read(&hnor1, (uint32_t *)(NOR_BANK_ADDR + write_address), &verify_val);
-//
-//  	// Read the manufacturer ID to the NOR Struct
-//  	NOR_IDTypeDef nor_id;
-//  	status = HAL_NOR_Read_ID(&hnor1, &nor_id);
-//
-//  	// Protect the NOR struct to PROTECTED
-//  	status = HAL_NOR_WriteOperation_Disable(&hnor1);
-//  	fmc_status = HAL_GPIO_ReadPin(FMC_RNB_GPIO_Port, FMC_RNB_Pin);
-//	// Leave NRST High
-
-  /// ----------------------- SDMMC -----------------------
-//  FATFS SDFatFS;    /* File system object for SD logical drive */
-//  FIL MyFile;       /* File object */
-//  FRESULT res;      /* FatFS function common result code */
-//  UINT bytesWritten;/* File write count */
-//  char path[4];     /* SD logical drive path */
-//
-//  res = f_mount(&SDFatFS, (TCHAR const*)SDPath, 1); // 1 = Mount immediately
-//  if (res != FR_OK) {
-//      // Error handling
-//  }
-//
-//  res = f_open(&MyFile, "test.txt", FA_WRITE | FA_CREATE_ALWAYS);
-//  if (res != FR_OK) {
-//      // Handle error (e.g., file system locked or write-protected)
-//  }
-//
-//  char textBuffer[] = "Hello world from STM32H7 FatFS!\r\n";
-//
-//  res = f_write(&MyFile, textBuffer, sizeof(textBuffer) - 1, &bytesWritten);
-//
-//  if (res == FR_OK && bytesWritten == (sizeof(textBuffer) - 1)) {
-//      // Success: File successfully written
-//  }
-//
-//  // Always close the file to flush buffers to the SD card/flash
-//  f_close(&MyFile);
-
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -336,13 +225,13 @@ int main(void)
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of comms */
-  commsHandle = osThreadNew(StartTask02, NULL, &comms_attributes);
+  commsHandle = osThreadNew(commsTask, NULL, &comms_attributes);
 
   /* creation of housekeeping */
-  housekeepingHandle = osThreadNew(StartTask03, NULL, &housekeeping_attributes);
+  housekeepingHandle = osThreadNew(housekeepingTask, NULL, &housekeeping_attributes);
 
   /* creation of imaging */
-  imagingHandle = osThreadNew(StartTask04, NULL, &imaging_attributes);
+  imagingHandle = osThreadNew(imagingTask, NULL, &imaging_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -963,135 +852,159 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    osDelay(osWaitForever);
   }
   /* USER CODE END 5 */
 }
 
-/* USER CODE BEGIN Header_StartTask02 */
+/* USER CODE BEGIN Header_commsTask */
 /**
 * @brief Function implementing the comms thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartTask02 */
-void StartTask02(void *argument)
+/* USER CODE END Header_commsTask */
+void commsTask(void *argument)
 {
-  /* USER CODE BEGIN StartTask02 */
-#if OPERATIONAL_MODE == SLAVE_MODE
-  // Serve stored images and the heartbeat to FISH.
-  comms_run();
-#endif
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartTask02 */
+  /* USER CODE BEGIN commsTask */
+	#if OPERATIONAL_MODE == SLAVE_MODE
+		comms_init();
+		for (;;)
+		{
+			// If comms_run() unexpectedly returns, then restart
+			comms_run();
+			osDelay(10);
+		}
+	#else
+		for (;;)
+		{
+			osDelay(osWaitForever);   // nothing to do in this mode; sleep forever
+		}
+	#endif
+	  /* USER CODE END commsTask */
 }
 
-/* USER CODE BEGIN Header_StartTask03 */
+/* USER CODE BEGIN Header_housekeepingTask */
 /**
 * @brief Function implementing the housekeeping thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartTask03 */
-void StartTask03(void *argument)
+/* USER CODE END Header_housekeepingTask */
+void housekeepingTask(void *argument)
 {
-  /* USER CODE BEGIN StartTask03 */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartTask03 */
+  /* USER CODE BEGIN housekeepingTask */
+
+	#define TASK_TIMEOUT 1000u
+	#define VOLTAGE_ERROR_THRESH_MV 4500u 	// 4.5 Volts
+	#define MICROSD_TIME_PERIOD_MS 300000u 	// 5 Minutes
+
+	// Create the first CSA log file
+	uint8_t status = 0;
+	/* status[7:0]
+	 * status[0] = Voltage Error
+	 * status[1] = Camera Error
+	 * status[2] = microSD Mount Error
+	 * status[3] = microSD Create File Error
+	 * status[4] = microSD Init Error
+	 * status[5] = microSD Append Error
+	 * status[6] = NIL
+	 * status[7] = NIL
+	 */
+	char filename[32];
+
+	// Initialise
+	RGB_Init();
+	CSA_Setup(&csa, &hi2c1);
+	OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
+
+	if (microsd_mount() != HAL_OK) status |= 0x04; // Mount microSD card
+
+	if (microsd_create_indexed_file(filename) != HAL_OK) status |= 0x08;
+	if (microsd_init_file(filename) != HAL_OK) status |= 0x10;
+
+	uint32_t prev_time = HAL_GetTick();
+
+	for(;;)
+	{
+		// --- OV7670 CAMERA ---
+
+		// Re-init the camera if the previous housekeeping cycle failed to identify the camera
+		if ((status & 0x02) >> 1) OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
+
+		// Reset housekeeping tracker
+		status = 0;
+
+		// Check the camera responds with the expected ID
+		uint8_t buffer[2];
+		uint8_t dev_id[2] = {0x73,0x76};
+		OV7670_Read_DevID(buffer);
+		for (int i = 0; i < 2; i++)
+		{
+		  if (buffer[i] != dev_id[i]) status |= 0x02;
+		}
+
+		// --- CURRENT SENSE AMPLIFIER ---
+
+		// Grab IV Sensor Data, check whether voltage error, and save to microSD
+		CSA_ReadAll(&csa);
+
+		if (csa.bus_voltage < VOLTAGE_ERROR_THRESH_MV) status |= 0x01;
+
+		// Start a new log file every MICROSD_TIME_PERIOD_MS
+		if (HAL_GetTick() > (prev_time + MICROSD_TIME_PERIOD_MS))
+		{
+		  if (microsd_create_indexed_file(filename) != HAL_OK) status |= 0x08;
+		  if (microsd_init_file(filename) != HAL_OK) status |= 0x10;
+		}
+
+		// --- WRITE TO MICROSD ---
+		if (microsd_append_file(filename, csa, status) != HAL_OK) status |= 0x20;
+
+		// --- UPDATE RGB LED ---
+		if (status & 0x01) RGB_Error_Fatal(); 				// Voltage too low
+		else if ((status & 0x02) >> 1) RGB_Error_Camera();	// Camera unresponsive
+		else if ((status & 0x3C) > 0) RGB_Error_microSD();	// microSD unresponsive
+		else RGB_Nominal();
+
+		osDelay(TASK_TIMEOUT);
+	}
+  /* USER CODE END housekeepingTask */
 }
 
-/* USER CODE BEGIN Header_StartTask04 */
+/* USER CODE BEGIN Header_imagingTask */
 /**
 * @brief Function implementing the imaging thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartTask04 */
-void StartTask04(void *argument)
+/* USER CODE END Header_imagingTask */
+void imagingTask(void *argument)
 {
-  /* USER CODE BEGIN StartTask04 */
-  img_jpeg_init(&hjpeg);
-  img_store_init();		// mounts the SD card; check img_store_ready()
+	/* USER CODE BEGIN imagingTask */
 
-#if IMG_SELFTEST
-  img_selftest_run(pBuffer);
-#endif
+	#if OPERATIONAL_MODE != NO_MODE
+		img_jpeg_init(&hjpeg);
+		img_store_init();		// mounts the SD card; check img_store_ready()
 
-#if OPERATIONAL_MODE == USB_MODE
-  // Capture-to-dashboard loop, moved from main(): 
-  /* Infinite loop */
-  for(;;)
-  {
-	  if (recvDone == 1)
+		#if IMG_SELFTEST
+		  img_selftest_run(pBuffer);
+		#endif
+
+		#if OPERATIONAL_MODE == USB_MODE
+		  camera_dashboard_operate();
+		#elif OPERATIONAL_MODE == SLAVE_MODE
+		  camera_capture_continuous(pBuffer);// Flight: capture -> encode -> store on a fixed cadence. Never returns.
+		#endif
+	#else
+	  for(;;)
 	  {
-
-		  // Check if length of received matches expected
-		  if (recvLen != 8) continue;
-
-		  // Check start and end byte
-		  if ((UserRxBufferHS[0] != 0xFF) || (UserRxBufferHS[7] != 0xFE)) continue;
-
-		  // Extract data
-		  uint8_t colour_mode = UserRxBufferHS[1];
-		  uint8_t resolution_mode = UserRxBufferHS[2];
-		  uint8_t test_pattern_mode = UserRxBufferHS[3];
-		  uint16_t aec_value = (UserRxBufferHS[4] << 8) + UserRxBufferHS[5];
-		  uint8_t gain_value = UserRxBufferHS[6];
-
-		  uint32_t image_size = (resolution_mode == 0) ? VGA_IMAGE_SIZE_BYTES : QVGA_IMAGE_SIZE_BYTES;
-		  uint32_t row_size = (resolution_mode == 0) ? VGA_ROW_BYTES: QVGA_ROW_BYTES;
-		  uint32_t buffer_size = row_size * 20; // 20 rows at a time
-
-		  // Setup Camera
-		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
-		  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode, aec_value, gain_value);
-		  osDelay(250); // Config pause time
-
-		  // Block until ready for image capture
-		  while (hdcmi.State != HAL_DCMI_STATE_READY);
-
-		  // --- IMAGE CAPTURE ---
-		  HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)pBuffer, image_size/4);
-
-		  // Block until image captured
-		  while (hdcmi.State != HAL_DCMI_STATE_READY);
-		  HAL_DCMI_Stop(&hdcmi);
-		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
-
-		  // Transmit each row
-		  for (uint32_t offset = 0; offset < image_size; offset += buffer_size)
-		  {
-		      Dashboard_Transmit(IMAGE_PACKET_ID, (uint8_t *)pBuffer + offset, buffer_size);
-		  }
-
-		  // Wait & Reset
-		  // HAL_Delay(1000);
-		  recvDone = 0;
-
+		  osDelay(osWaitForever);
 	  }
-	  else // Send CSA data
-	  {
-		  INA219_ReadAll(&INA219_Chip);
-		  uint16_t power_to_send = INA219_Chip.power_mW;
-		  Dashboard_Transmit(POWER_PACKET_ID, (uint8_t *)&power_to_send, sizeof(uint16_t));
+	#endif
 
-		  // Short delay so the dashboard is readable
-		  osDelay(150);
-	  }
-  }
-#else
-  // Flight: capture -> encode -> store on a fixed cadence. Never returns.
-  imaging_run(pBuffer);
-#endif
-  /* USER CODE END StartTask04 */
+
+  /* USER CODE END imagingTask */
 }
 
  /* MPU Configuration */

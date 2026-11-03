@@ -94,7 +94,7 @@ const osThreadAttr_t comms_attributes = {
 osThreadId_t housekeepingHandle;
 const osThreadAttr_t housekeeping_attributes = {
   .name = "housekeeping",
-  .stack_size = 256 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for imaging */
@@ -881,7 +881,7 @@ void commsTask(void *argument)
 			osDelay(osWaitForever);   // nothing to do in this mode; sleep forever
 		}
 	#endif
-	  /* USER CODE END commsTask */
+  /* USER CODE END commsTask */
 }
 
 /* USER CODE BEGIN Header_housekeepingTask */
@@ -981,7 +981,7 @@ void housekeepingTask(void *argument)
 /* USER CODE END Header_imagingTask */
 void imagingTask(void *argument)
 {
-	/* USER CODE BEGIN imagingTask */
+  /* USER CODE BEGIN imagingTask */
 
 	#if OPERATIONAL_MODE != NO_MODE
 		img_jpeg_init(&hjpeg);

@@ -7,14 +7,17 @@
 
 #include "microSD.h"
 
+#define FILE_INDEX_INT_LIMIT 9999
+
 extern FATFS SDFatFS;
 
-FRESULT fr;
-FIL file;
-FILINFO fno;
+// Local PVs
+static FRESULT fr;
+static FIL file;
+static FILINFO fno;
 
 /**
- * @brief  Mounts the SD card and creates the next unused "data_N.csv" file.
+ * @brief  Creates the next unused "data_N.csv" file.
  *
  * @param filename Buffer that receives the file name (at least 20 bytes).
  *
@@ -22,16 +25,29 @@ FILINFO fno;
  */
 HAL_StatusTypeDef microsd_create_indexed_file(char *filename)
 {
-	int file_index = 0;
+	int lo = 0;                     // first unused index is >= lo
+	int hi = FILE_INDEX_INT_LIMIT;  // first unused index is <= hi
+	FRESULT r;
 
-	// Find the first index that doesn't exist yet
-	do {
-		sprintf(filename, "c2s_data_index_%d.csv", file_index);
-		file_index++;
-	} while (f_stat(filename, &fno) == FR_OK);
+	// If the last index already exists, every slot is used
+	sprintf(filename, "c2s_data_index_%d.csv", hi);
+	r = f_stat(filename, &fno);
+	if (r != FR_NO_FILE) return HAL_ERROR;   // exists (full) or a real SD error
 
-	// Create the file (header can be written here if needed)
-	fr = f_open(&file, filename, FA_OPEN_ALWAYS);
+	// Binary search for the first unused index
+	while (lo < hi) {
+		int mid = lo + (hi - lo) / 2;
+		sprintf(filename, "c2s_data_index_%d.csv", mid);
+		r = f_stat(filename, &fno);
+
+		if (r == FR_OK) lo = mid + 1;		// exists, so look higher
+		else if (r == FR_NO_FILE) hi = mid;	// free, so look at or below
+		else return HAL_ERROR;
+	}
+
+	// lo == hi == first unused index
+	sprintf(filename, "c2s_data_index_%d.csv", lo);
+	fr = f_open(&file, filename, FA_WRITE | FA_CREATE_NEW);
 	if (fr != FR_OK) return HAL_ERROR;
 
 	f_close(&file);
@@ -49,15 +65,15 @@ HAL_StatusTypeDef microsd_init_file(char *filename)
 {
 
 	// Open the file for appending, creating it if needed
-	fr = f_open(&file, filename, FA_OPEN_ALWAYS | FA_OPEN_APPEND);
+	fr = f_open(&file, filename, FA_WRITE | FA_CREATE_ALWAYS);
 	if (fr != FR_OK) return HAL_ERROR;
 
 	// Write the CSV header
-	fr = f_printf(&file, "Tick,BusVoltage(mV),PowerDraw(mW),CurrentDraw(mA),CamActive\n");
-	if (fr != FR_OK) return HAL_ERROR;
+	int n = f_printf(&file, "Tick,BusVoltage(mV),PowerDraw(mW),CurrentDraw(mA),CamActive\n");
 
-	f_close(&file);
-	return HAL_OK;
+	FRESULT r = f_close(&file);
+
+	return (n > 0 && r == FR_OK) ? HAL_OK : HAL_ERROR;
 }
 
 /**
@@ -66,7 +82,7 @@ HAL_StatusTypeDef microsd_init_file(char *filename)
  * Row format: tick (ms), bus voltage (mV), power (mW), current (mA).
  *
  * @param filename Name of the file to append to (created if it doesn't exist).
- * @param ina      INA219 handle holding the latest readings.
+ * @param csa      INA219 handle holding the latest readings.
  *
  * @retval HAL_OK on success, HAL_ERROR on any SD card failure.
  */

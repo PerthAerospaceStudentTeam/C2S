@@ -37,6 +37,7 @@
 #include "ov7670.h"
 #include "rgb_led.h"
 #include "microSD.h"
+#include "task.h"
 
 /* USER CODE END Includes */
 
@@ -777,6 +778,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOG_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOJ_CLK_ENABLE();
+  __HAL_RCC_GPIOK_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
@@ -819,6 +821,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOJ, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : DUMMY_PIN_SD_Pin */
+  GPIO_InitStruct.Pin = DUMMY_PIN_SD_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(DUMMY_PIN_SD_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : DCMI_MCLK_Pin */
   GPIO_InitStruct.Pin = DCMI_MCLK_Pin;
@@ -895,9 +903,9 @@ void housekeepingTask(void *argument)
 {
   /* USER CODE BEGIN housekeepingTask */
 
-	#define TASK_TIMEOUT 1000u
-	#define VOLTAGE_ERROR_THRESH_MV 4500u 	// 4.5 Volts
-	#define MICROSD_TIME_PERIOD_MS 300000u 	// 5 Minutes
+	#define TASK_TIMEOUT 200u
+	#define VOLTAGE_ERROR_THRESH_MV 4500u 					// 4.5 Volts
+	#define MICROSD_TIME_PERIOD_MS (60*configTICK_RATE_HZ)	// 1 Minute(s)
 
 	// Create the first CSA log file
 	uint8_t status = 0;
@@ -923,7 +931,7 @@ void housekeepingTask(void *argument)
 	if (microsd_create_indexed_file(filename) != HAL_OK) status |= 0x08;
 	if (microsd_init_file(filename) != HAL_OK) status |= 0x10;
 
-	uint32_t prev_time = HAL_GetTick();
+	uint32_t prev_time = xTaskGetTickCount();
 
 	for(;;)
 	{
@@ -932,8 +940,9 @@ void housekeepingTask(void *argument)
 		// Re-init the camera if the previous housekeeping cycle failed to identify the camera
 		if ((status & 0x02) >> 1) OV7670_Init(&hdcmi, &hdma_dcmi, &hi2c1);
 
-		// Reset housekeeping tracker
-		status = 0;
+		// --- HOUSEKEEPING ---
+
+		status = 0; // Reset housekeeping tracker
 
 		// Check the camera responds with the expected ID
 		uint8_t buffer[2];
@@ -948,17 +957,18 @@ void housekeepingTask(void *argument)
 
 		// Grab IV Sensor Data, check whether voltage error, and save to microSD
 		CSA_ReadAll(&csa);
-
 		if (csa.bus_voltage < VOLTAGE_ERROR_THRESH_MV) status |= 0x01;
 
+		// --- WRITE TO DATA TO MICROSD ---
+
 		// Start a new log file every MICROSD_TIME_PERIOD_MS
-		if (HAL_GetTick() > (prev_time + MICROSD_TIME_PERIOD_MS))
+		if (xTaskGetTickCount() > (prev_time + MICROSD_TIME_PERIOD_MS))
 		{
 		  if (microsd_create_indexed_file(filename) != HAL_OK) status |= 0x08;
 		  if (microsd_init_file(filename) != HAL_OK) status |= 0x10;
+		  prev_time = xTaskGetTickCount();
 		}
-
-		// --- WRITE TO MICROSD ---
+		// Append row of data to file
 		if (microsd_append_file(filename, csa, status) != HAL_OK) status |= 0x20;
 
 		// --- UPDATE RGB LED ---
@@ -1034,6 +1044,28 @@ void MPU_Config(void)
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM1 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM1)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
 }
 
 /**

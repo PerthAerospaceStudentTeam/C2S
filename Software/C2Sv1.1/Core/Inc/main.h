@@ -73,6 +73,8 @@ void Error_Handler(void);
 #define DCMI_GPIO2_GPIO_Port GPIOJ
 #define DCMI_GPIO3_Pin GPIO_PIN_11
 #define DCMI_GPIO3_GPIO_Port GPIOJ
+#define DUMMY_PIN_SD_Pin GPIO_PIN_1
+#define DUMMY_PIN_SD_GPIO_Port GPIOK
 #define DCMI_MCLK_Pin GPIO_PIN_8
 #define DCMI_MCLK_GPIO_Port GPIOA
 

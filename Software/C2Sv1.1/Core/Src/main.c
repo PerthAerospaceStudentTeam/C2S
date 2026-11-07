@@ -28,8 +28,6 @@
 
 #include "dashboard.h"
 #include "img_jpeg.h"
-#include "img_store.h"
-#include "img_selftest.h"
 #include "imaging.h"
 #include "comms.h"
 #include "config.h"
@@ -105,6 +103,13 @@ const osThreadAttr_t imaging_attributes = {
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
+/* Definitions for imageReq */
+osThreadId_t imageReqHandle;
+const osThreadAttr_t imageReq_attributes = {
+  .name = "imageReq",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
 
 // --- INA219 ---
@@ -115,6 +120,9 @@ CSA_HandleTypeDef csa;
 // interrupts once the scheduler starts, so DMA into it would corrupt memory.
 // Sized for VGA, the largest frame the dashboard requests (614 KB in AXI SRAM).
 ALIGN_32BYTES(uint32_t pBuffer[VGA_IMAGE_SIZE_WORDS]);
+
+// -- IMAGING ---
+extern volatile imaging_req_t g_imaging_req;
 
 /* USER CODE END PV */
 
@@ -137,6 +145,7 @@ void StartDefaultTask(void *argument);
 void commsTask(void *argument);
 void housekeepingTask(void *argument);
 void imagingTask(void *argument);
+void imageHkReqTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -233,6 +242,9 @@ int main(void)
 
   /* creation of imaging */
   imagingHandle = osThreadNew(imagingTask, NULL, &imaging_attributes);
+
+  /* creation of imageReq */
+  imageReqHandle = osThreadNew(imageHkReqTask, NULL, &imageReq_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -825,7 +837,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : DUMMY_PIN_SD_Pin */
   GPIO_InitStruct.Pin = DUMMY_PIN_SD_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(DUMMY_PIN_SD_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : DCMI_MCLK_Pin */
@@ -876,7 +888,7 @@ void commsTask(void *argument)
 {
   /* USER CODE BEGIN commsTask */
 	#if OPERATIONAL_MODE == SLAVE_MODE
-		comms_init();
+
 		for (;;)
 		{
 			// If comms_run() unexpectedly returns, then restart
@@ -905,7 +917,7 @@ void housekeepingTask(void *argument)
 
 	#define TASK_TIMEOUT 200u
 	#define VOLTAGE_ERROR_THRESH_MV 4500u 					// 4.5 Volts
-	#define MICROSD_TIME_PERIOD_MS (60*configTICK_RATE_HZ)	// 1 Minute(s)
+	#define MICROSD_TIME_PERIOD_MS (300*configTICK_RATE_HZ)	// 5 Minute(s)
 
 	// Create the first CSA log file
 	uint8_t status = 0;
@@ -932,6 +944,12 @@ void housekeepingTask(void *argument)
 	if (microsd_init_file(filename) != HAL_OK) status |= 0x10;
 
 	uint32_t prev_time = xTaskGetTickCount();
+
+	/*
+	 * Each subprocess within the for(;;) loop can take a different number of ticks between each run.
+	 * The wait time between runs is goverened by a static wait time, therefore the elapsed time between housekeeping runs is inconsistent.
+	 * The tick at write-time is put on the microSD card in `microsd_append_file`.
+	 */
 
 	for(;;)
 	{
@@ -969,7 +987,7 @@ void housekeepingTask(void *argument)
 		  prev_time = xTaskGetTickCount();
 		}
 		// Append row of data to file
-		if (microsd_append_file(filename, csa, status) != HAL_OK) status |= 0x20;
+		if (microsd_append_file(filename, csa, status, g_imaging_req) != HAL_OK) status |= 0x20;
 
 		// --- UPDATE RGB LED ---
 		if (status & 0x01) RGB_Error_Fatal(); 				// Voltage too low
@@ -993,9 +1011,15 @@ void imagingTask(void *argument)
 {
   /* USER CODE BEGIN imagingTask */
 
+	// Wait for initialisation
+	while (!img_store_ready())
+	{
+		img_store_init();
+		osDelay(100);
+	}
+
 	#if OPERATIONAL_MODE != NO_MODE
 		img_jpeg_init(&hjpeg);
-		img_store_init();		// mounts the SD card; check img_store_ready()
 
 		#if IMG_SELFTEST
 		  img_selftest_run(pBuffer);
@@ -1003,9 +1027,12 @@ void imagingTask(void *argument)
 
 		#if OPERATIONAL_MODE == USB_MODE
 		  camera_dashboard_operate();
+
 		#elif OPERATIONAL_MODE == SLAVE_MODE
-		  camera_capture_continuous(pBuffer);// Flight: capture -> encode -> store on a fixed cadence. Never returns.
+		  camera_capture_continuous(pBuffer);
+
 		#endif
+
 	#else
 	  for(;;)
 	  {
@@ -1015,6 +1042,31 @@ void imagingTask(void *argument)
 
 
   /* USER CODE END imagingTask */
+}
+
+/* USER CODE BEGIN Header_imageHkReqTask */
+/**
+* @brief Request an image if none are being requested by FISH
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_imageHkReqTask */
+void imageHkReqTask(void *argument)
+{
+  /* USER CODE BEGIN imageHkReqTask */
+
+  /* Infinite loop */
+  for(;;)
+  {
+	  if (g_imaging_req.src != IMG_SRC_FISH)
+	  {
+		  g_imaging_req.buf = 1;
+		  g_imaging_req.src = IMG_SRC_C2S;
+	  }
+
+	  osDelay(configTICK_RATE_HZ*10); // Wait 10s
+  }
+  /* USER CODE END imageHkReqTask */
 }
 
  /* MPU Configuration */

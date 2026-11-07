@@ -16,7 +16,7 @@
 
 // ------------ CONFIGURATION INPUT STARTS HERE ------------
 
-#define OPERATIONAL_MODE 		USB_MODE
+#define OPERATIONAL_MODE 		SLAVE_MODE
 
 // ------------ CONFIGURATION ENDS HERE ------------
 

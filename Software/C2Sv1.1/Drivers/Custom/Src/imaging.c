@@ -4,34 +4,98 @@
  *  Created on: 11 Oct 2026
  *      Author: gabe
  *
- *  Modified on: 28/10/2026
+ *  Modified on: 7/11/2026
  *  	Author: felix
+ *
  */
 
 #include "imaging.h"
 
-#include "img_capture.h"
-#include "img_store.h"
+#include "microSD.h"
 #include "cmsis_os2.h"
 #include "ina219.h"
 #include "usbd_cdc_if.h"
 #include "dashboard.h"
 #include "ov7670.h"
+#include "config.h"
+#include "FreeRTOS.h"
+#include "task.h"
+
+// --- Camera settings used for flight/self-test captures ---
+#define CAM_RGB565			0
+#define CAM_QVGA			1
+#define CAM_SETTLE_MS		300u
+#define CAM_FRAME_TIMEOUT	1000u
+
+#define CAM_AEC_VALUE		512u
+#define CAM_GAIN_VALUE		0xA0u
 
 volatile imaging_stats_t g_imaging_stats;	// Running capture/store/encode counters
+volatile selftest_report_t g_img_selftest;	// Results of the last self-test
 static img_store_slot_t s_slot;				// Current SD card slot being written
+static FIL s_file;							// File used by the self-test
 
 // --- USB CDC ---
 extern uint8_t recvDone;					// Set by the USB RX callback when a packet arrives
 extern uint8_t recvLen;
 extern uint8_t UserRxBufferHS[APP_RX_DATA_SIZE];
+
 // --- INA219 ---
 extern CSA_HandleTypeDef csa;
+
 // --- DCMI ---
 extern DCMI_HandleTypeDef hdcmi;
 extern uint32_t pBuffer[VGA_IMAGE_SIZE_WORDS];
 uint32_t camera_config = 0;
 uint32_t camera_config_prev = 0;
+
+// --- IMAGE BUFFER ---
+volatile imaging_req_t g_imaging_req;
+
+/**
+ * @brief  Waits for the DCMI to return to the ready state.
+ *
+ * @param timeout_ms Maximum time to wait in milliseconds.
+ *
+ * @retval 0 if ready, -1 on timeout
+ */
+static int wait_dcmi_ready(uint32_t timeout_ms)
+{
+	uint32_t start = HAL_GetTick();
+
+	while (hdcmi.State != HAL_DCMI_STATE_READY) {
+		if (HAL_GetTick() - start > timeout_ms) {
+			return -1;
+		}
+		osDelay(1);
+	}
+	return 0;
+}
+
+/**
+ * @brief  Powers up and configures the camera, captures one QVGA RGB565 frame, then powers it down.
+ *
+ * @param *frame Buffer the camera DMA writes the raw frame into (IMG_CAPTURE_BYTES).
+ * @param test_pattern 1 for the camera colour bar test pattern, 0 for a live image.
+ *
+ * @retval 0 on success, -1 on failure or timeout
+ */
+int img_capture_frame(uint32_t *frame, uint8_t test_pattern)
+{
+	HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);
+	OV7670_Config(CAM_RGB565, CAM_QVGA, test_pattern, CAM_AEC_VALUE, CAM_GAIN_VALUE);
+	osDelay(CAM_SETTLE_MS);
+
+	int ret = -1;
+	if (HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)frame, IMG_CAPTURE_BYTES / 4u) == HAL_OK &&
+		wait_dcmi_ready(CAM_FRAME_TIMEOUT) == 0) {
+		ret = 0;
+	}
+
+	HAL_DCMI_Stop(&hdcmi);
+	//HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_SET);
+	return ret;
+}
 
 /**
  * @brief  Captures one frame, encodes it to JPEG and stores it on the SD card.
@@ -39,7 +103,7 @@ uint32_t camera_config_prev = 0;
  * Updates g_imaging_stats with the outcome. On any failure the function
  * returns early and no image is kept.
  *
- * @param frame Buffer the camera DMA writes the raw frame into.
+ * @param *frame Buffer the camera DMA writes the raw frame into.
  */
 static void camera_capture_single(uint32_t *frame)
 {
@@ -77,6 +141,9 @@ static void camera_capture_single(uint32_t *frame)
 	g_imaging_stats.captured++;
 	g_imaging_stats.last_id = s_slot.id;
 	g_imaging_stats.last_result = res;
+
+	// Copy data to request struct
+	g_imaging_req.idx = g_imaging_stats.last_id;
 }
 
 /**
@@ -84,12 +151,27 @@ static void camera_capture_single(uint32_t *frame)
  *
  * Never returns.
  *
- * @param frame Buffer the camera DMA writes the raw frame into.
+ * @param *frame Buffer the camera DMA writes the raw frame into.
  */
 void camera_capture_continuous(uint32_t *frame)
 {
+	// Setup
+	g_imaging_req.buf = 0;
+	g_imaging_req.idx = 0;
+	g_imaging_req.src = IMG_SRC_NIL;
+	g_imaging_req.timestamp = 0;
+
 	for (;;) {
-		camera_capture_single(frame);
+
+		// Take an image if valid request
+		if ((g_imaging_req.buf != 0) && (g_imaging_req.src != IMG_SRC_NIL))
+		{
+			camera_capture_single(frame);
+			g_imaging_req.timestamp = xTaskGetTickCount();
+			g_imaging_req.buf = g_imaging_req.buf - 1;
+			if (g_imaging_req.buf == 0) g_imaging_req.src = IMG_SRC_NIL;
+		}
+
 		osDelay(IMG_CAPTURE_PERIOD_MS);
 	}
 }
@@ -173,4 +255,53 @@ void camera_dashboard_operate()
 		  osDelay(100);
 	  }
 	}
+}
+
+/**
+ * @brief  Captures one self-test image and encodes it to a named file on the SD card.
+ *
+ * @param *name File name to write, e.g., "BARS.JPG"
+ * @param *frame Buffer the camera DMA writes the raw frame into.
+ * @param test_pattern 1 for the colour bar test pattern, 0 for a live image.
+ * @param *tc Pointer to the report entry to fill.
+ */
+static void run_case(const char *name, uint32_t *frame, uint8_t test_pattern, volatile selftest_case_t *tc)
+{
+	const img_jpeg_cfg_t cfg = { IMG_CAPTURE_WIDTH, IMG_CAPTURE_HEIGHT, IMG_SELFTEST_QUALITY };
+	img_source_t src = { .ram = (const uint8_t *)frame, .swap_bytes = IMG_CAPTURE_SWAP };
+	img_jpeg_result_t res = {0};
+
+	tc->captured = (img_capture_frame(frame, test_pattern) == 0);
+	if (!tc->captured) {
+		return;
+	}
+
+	img_status_t st = IMG_ERR_WRITE;
+	if (f_open(&s_file, name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
+		st = img_jpeg_encode(&cfg, &src, &s_file, &res);
+		if (f_close(&s_file) != FR_OK && st == IMG_OK) {
+			st = IMG_ERR_WRITE;
+		}
+	}
+
+	tc->status = st;
+	tc->result = res;
+}
+
+/**
+ * @brief  Runs the camera/JPEG/SD self-test: saves BARS.JPG (test pattern) and LIVE.JPG.
+ *
+ * Results are stored in g_img_selftest. Does nothing if the store is not ready.
+ *
+ * @param *frame Buffer the camera DMA writes the raw frame into.
+ */
+void img_selftest_run(uint32_t *frame)
+{
+	g_img_selftest.store_ready = img_store_ready();
+	if (!g_img_selftest.store_ready) {
+		return;
+	}
+
+	run_case("BARS.JPG", frame, 1, &g_img_selftest.bars);
+	run_case("LIVE.JPG", frame, 0, &g_img_selftest.live);
 }

@@ -7,10 +7,11 @@
 
 #include "comms.h"
 #include "link.h"
-#include "icd_packet.h"
-#include "img_store.h"
+#include "icd.h"
+#include "microSD.h"
 #include "cmsis_os2.h"
 #include <string.h>
+#include "imaging.h"
 
 volatile comms_stats_t g_comms_stats;
 
@@ -19,12 +20,19 @@ static uint8_t      s_frame[ICD_FRAME_MAX];
 static icd_packet_t s_req;
 static icd_packet_t s_res;
 
-static uint8_t  s_sending;
-static uint32_t s_id;
-static uint32_t s_offset;
-static uint32_t s_chunk_len;
-static uint32_t s_next_id;
+static uint32_t s_id;			// ID of the image being sent
+static uint32_t s_offset;		// Byte offset of the next chunk in the image
+static uint32_t s_chunk_len;	// Length of the chunk awaiting an ACK
+static uint32_t s_next_id;		// Lowest image ID to serve next
 
+extern volatile imaging_req_t g_imaging_req;
+
+/**
+ * @brief  Builds a response frame from s_res and sends it over the link.
+ *
+ * @param type ICD packet type.
+ * @param len Number of valid bytes in s_res.data.
+ */
 static void send_response(uint8_t type, uint8_t len)
 {
 	s_res.id        = ICD_ID_RESPONSE;
@@ -37,43 +45,18 @@ static void send_response(uint8_t type, uint8_t len)
 	link_send(s_frame, icd_build(&s_res, s_frame));
 }
 
-static void serve_image(void)
-{
-	if (!s_sending) {
-		if (img_store_acquire(s_next_id, &s_id) != STORE_OK) {
-			send_response(ICD_TYPE_IMAGE, 0);
-			return;
-		}
-		s_sending = 1;
-		s_offset = 0;
-		s_chunk_len = 0;
-	}
-
-	uint32_t got = 0;
-	if (img_store_read(s_offset, s_res.data, ICD_DATA_MAX, &got) != STORE_OK) {
-		return;
-	}
-
-	if (got == 0u) {
-		send_response(ICD_TYPE_IMAGE, 0);
-		img_store_release();
-		s_sending = 0;
-		s_next_id = s_id + 1u;
-		g_comms_stats.images_sent++;
-		return;
-	}
-
-	s_chunk_len = got;
-	send_response(ICD_TYPE_IMAGE, (uint8_t)got);
-	g_comms_stats.packets_sent++;
-}
-
+/**
+ * @brief  Advances the image offset past the chunk that was just acknowledged.
+ */
 static void on_ack(void)
 {
 	s_offset += s_chunk_len;
 	s_chunk_len = 0;
 }
 
+/**
+ * @brief  Sends a heartbeat: uptime in seconds (4 bytes LE), store ready flag, stored image count.
+ */
 static void send_heartbeat(void)
 {
 	uint32_t uptime_s = osKernelGetTickCount() / 1000u;
@@ -87,22 +70,49 @@ static void send_heartbeat(void)
 	send_response(ICD_TYPE_HEARTBEAT, 6);
 }
 
+/**
+ * @brief  Add FISH request to imaging queue
+ */
+static void req_image(void)
+{
+	if (g_imaging_req.src == IMG_SRC_C2S) g_imaging_req.buf = 0; // Housekeeping requests are lowest priority, remove from queue
+	g_imaging_req.buf = g_imaging_req.buf + 1;
+	g_imaging_req.src = IMG_SRC_FISH;
+}
+
+/**
+ * @brief  Dispatches a parsed packet. Packets addressed to other nodes are ignored.
+ *
+ * @param *pkt Pointer to the received packet.
+ */
 static void handle(const icd_packet_t *pkt)
 {
 	if (pkt->has_addr && pkt->recipient != ICD_NODE_C2S) {
 		return;
 	}
+
 	g_comms_stats.frames_rx++;
 
 	if (pkt->id == ICD_ID_REQUEST && pkt->type == ICD_TYPE_IMAGE) {
-		serve_image();
+
+		req_image();
+
 	} else if (pkt->id == ICD_ID_REQUEST && pkt->type == ICD_TYPE_HEARTBEAT) {
+
 		send_heartbeat();
+
 	} else if (pkt->id == ICD_ID_ACK) {
+
 		on_ack();
+
 	}
 }
 
+/**
+ * @brief  Comms task body: receives frames and handles requests.
+ *
+ * Never returns.
+ */
 void comms_run(void)
 {
 	link_init();

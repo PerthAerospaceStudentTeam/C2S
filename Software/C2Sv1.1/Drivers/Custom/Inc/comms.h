@@ -10,11 +10,12 @@
 
 #include <stdint.h>
 
+/** Running link counters. */
 typedef struct {
-	uint32_t frames_rx;
-	uint32_t bad_frames;
-	uint32_t packets_sent;
-	uint32_t images_sent;
+	uint32_t frames_rx;		/**< Valid frames addressed to this node */
+	uint32_t bad_frames;	/**< Frames with a start byte that failed to parse */
+	uint32_t packets_sent;	/**< Image data chunks sent */
+	uint32_t images_sent;	/**< Complete images sent */
 } comms_stats_t;
 
 extern volatile comms_stats_t g_comms_stats;

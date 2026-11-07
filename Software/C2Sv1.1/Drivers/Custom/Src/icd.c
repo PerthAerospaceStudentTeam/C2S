@@ -1,13 +1,22 @@
 /*
- * icd_packet.c
+ * icd.c
  *
  *  Created on: 11 Oct 2026
  *      Author: gabe
+ *
  */
 
-#include "icd_packet.h"
+#include "icd.h"
 #include <string.h>
 
+/**
+ * @brief  Calculates an 8-bit additive checksum.
+ *
+ * @param *frame Pointer to the bytes to sum.
+ * @param len Number of bytes to sum.
+ *
+ * @retval Sum of all bytes, truncated to 8 bits
+ */
 uint8_t icd_checksum(const uint8_t *frame, uint32_t len)
 {
 	uint8_t sum = 0;
@@ -18,6 +27,14 @@ uint8_t icd_checksum(const uint8_t *frame, uint32_t len)
 	return sum;
 }
 
+/**
+ * @brief  Serialises a packet into a frame: [start, id, length, (source, recipient, type, data...), checksum].
+ *
+ * @param *pkt Pointer to the packet to send.
+ * @param out Buffer the frame is written into.
+ *
+ * @retval Total frame length in bytes, or 0 if data_len exceeds ICD_DATA_MAX
+ */
 uint32_t icd_build(const icd_packet_t *pkt, uint8_t out[ICD_FRAME_MAX])
 {
 	if (pkt->data_len > ICD_DATA_MAX) {
@@ -41,6 +58,17 @@ uint32_t icd_build(const icd_packet_t *pkt, uint8_t out[ICD_FRAME_MAX])
 	return end + ICD_CHECKSUM_BYTES;
 }
 
+/**
+ * @brief  Finds and decodes a frame in a received buffer.
+ *
+ * Skips any bytes before the start byte, then validates length and checksum.
+ *
+ * @param *buf Pointer to the received bytes.
+ * @param len Number of received bytes.
+ * @param *pkt Pointer to the packet filled on success.
+ *
+ * @retval 1 if a valid frame was decoded, 0 otherwise
+ */
 int icd_parse(const uint8_t *buf, uint32_t len, icd_packet_t *pkt)
 {
 	uint32_t start = 0;

@@ -212,6 +212,7 @@ void camera_dashboard_operate()
 		  uint32_t buffer_size = row_size * 20; // 20 rows at a time
 
 		  // Setup Camera if config is different
+		  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);	// Power up
 		  camera_config = (colour_mode) |
 		                  (resolution_mode << 2) |
 		                  (test_pattern_mode << 4) |
@@ -219,7 +220,6 @@ void camera_dashboard_operate()
 		                  ((uint32_t)gain_value << 23);
 		  if (camera_config != camera_config_prev)
 		  {
-			  HAL_GPIO_WritePin(DCMI_PWRDWN_GPIO_Port, DCMI_PWRDWN_Pin, GPIO_PIN_RESET);	// Power up
 			  OV7670_Config(colour_mode, resolution_mode, test_pattern_mode, aec_value, gain_value);
 			  osDelay(250); // Config pause time
 			  camera_config_prev = camera_config;

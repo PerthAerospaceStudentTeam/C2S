@@ -990,10 +990,12 @@ void housekeepingTask(void *argument)
 		if (microsd_append_file(filename, csa, status, g_imaging_req) != HAL_OK) status |= 0x20;
 
 		// --- UPDATE RGB LED ---
-		if (status & 0x01) RGB_Error_Fatal(); 				// Voltage too low
-		else if ((status & 0x02) >> 1) RGB_Error_Camera();	// Camera unresponsive
-		else if ((status & 0x3C) > 0) RGB_Error_microSD();	// microSD unresponsive
-		else RGB_Nominal();
+		#if LED_MODE == LED_ENABLE
+			if (status & 0x01) RGB_Error_Fatal(); 				// Voltage too low
+			else if ((status & 0x02) >> 1) RGB_Error_Camera();	// Camera unresponsive
+			else if ((status & 0x3C) > 0) RGB_Error_microSD();	// microSD unresponsive
+			else RGB_Nominal();
+		#endif
 
 		osDelay(TASK_TIMEOUT);
 	}

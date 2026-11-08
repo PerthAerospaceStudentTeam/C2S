@@ -80,8 +80,8 @@ const uint8_t RGB565_Config[][2] = {
 
 		// AGC, AEC, AWB
 //		{OV7670_GAIN_ADDRESS, 0xA0},
-		{OV7670_COM8_ADDRESS, 0x8C},		// Fast AGC/AEC, AGC Enabled
-		{OV7670_COM9_ADDRESS, 0x6A},   		// AGC Ceiling = 128x
+		{OV7670_COM8_ADDRESS, 0x00},		// Fast AGC/AEC Disabled, AGC Disabled
+		{OV7670_COM9_ADDRESS, 0x3A},   		// AGC Ceiling = 16x
 		{OV7670_COM16_ADDRESS, 0x38},   	// edge enhancement, de-noise, AWG gain enabled
 
 		// AWB

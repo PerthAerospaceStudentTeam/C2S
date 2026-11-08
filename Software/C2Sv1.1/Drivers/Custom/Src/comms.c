@@ -20,10 +20,8 @@ static uint8_t      s_frame[ICD_FRAME_MAX];
 static icd_packet_t s_req;
 static icd_packet_t s_res;
 
-static uint32_t s_id;			// ID of the image being sent
 static uint32_t s_offset;		// Byte offset of the next chunk in the image
 static uint32_t s_chunk_len;	// Length of the chunk awaiting an ACK
-static uint32_t s_next_id;		// Lowest image ID to serve next
 
 extern volatile imaging_req_t g_imaging_req;
 

@@ -10,6 +10,9 @@
 
 #include "main.h"
 
+#define LED_ENABLE				1
+#define LED_DISABLE				0
+
 #define NO_MODE 				0
 #define USB_MODE 				1
 #define SLAVE_MODE 				2
@@ -17,6 +20,8 @@
 // ------------ CONFIGURATION INPUT STARTS HERE ------------
 
 #define OPERATIONAL_MODE 		SLAVE_MODE
+
+#define LED_MODE				LED_ENABLE
 
 // ------------ CONFIGURATION ENDS HERE ------------
 
@@ -36,8 +41,6 @@
 
 #define DCMI_RESET_Pin			DCMI_GPIO2_Pin
 #define DCMI_RESET_GPIO_Port	DCMI_GPIO2_GPIO_Port
-
-#define LL_MAX_NODE_SIZE		38400
 
 #define IMAGE_COLS				320
 #define IMAGE_ROWS				240

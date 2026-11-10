@@ -12,6 +12,14 @@
 #include "img_jpeg.h"
 
 #include "main.h"
+#include "config.h"
+
+// --- Stored image format ---
+#if COMPRESSION_MODE == COMPRESSION_ENABLE
+#define IMG_FILE_EXT			".JPG"		// JPEG, IMG_FLIGHT_QUALITY
+#else
+#define IMG_FILE_EXT			".BIN"		// Raw RGB565 as captured
+#endif
 
 // --- Capture ---
 #define IMG_CAPTURE_WIDTH		320u

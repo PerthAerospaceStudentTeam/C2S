@@ -151,29 +151,29 @@ HAL_StatusTypeDef microsd_mount()
  * ====================================================================== */
 
 /**
- * @brief  Builds the file path for an image ID, e.g. IMG/0000042.JPG
+ * @brief  Builds the file path for an image ID, e.g. IMG/0000042.JPG (extension is IMG_FILE_EXT)
  *
  * @param *out Buffer of at least PATH_LEN bytes.
  * @param id Image ID.
  */
-static void jpg_path(char *out, uint32_t id)
+static void img_path(char *out, uint32_t id)
 {
-	snprintf(out, PATH_LEN, STORE_DIR "/%07lu.JPG", (unsigned long)id);
+	snprintf(out, PATH_LEN, STORE_DIR "/%07lu" IMG_FILE_EXT, (unsigned long)id);
 }
 
 /**
- * @brief  Parses an image ID from a file name of the form NNNNNNN.JPG
+ * @brief  Parses an image ID from a file name of the form NNNNNNN.JPG (extension is IMG_FILE_EXT)
  *
  * @param *name File name to parse.
  * @param *id Pointer to the parsed ID.
  *
  * @retval 1 if the name matched, 0 otherwise
  */
-static int parse_jpg(const char *name, uint32_t *id)
+static int parse_img(const char *name, uint32_t *id)
 {
 	char *end;
 
-	if (strlen(name) != 11 || strcmp(&name[7], ".JPG") != 0) {
+	if (strlen(name) != 11 || strcmp(&name[7], IMG_FILE_EXT) != 0) {
 		return 0;
 	}
 	*id = (uint32_t)strtoul(name, &end, 10);
@@ -214,7 +214,7 @@ static void evict_oldest(void)
 	uint32_t i = (s_held && s_ids[0] == s_held_id) ? 1u : 0u;
 
 	char path[PATH_LEN];
-	jpg_path(path, s_ids[i]);
+	img_path(path, s_ids[i]);
 	f_unlink(path);
 
 	memmove(&s_ids[i], &s_ids[i + 1u], (s_count - i - 1u) * sizeof(s_ids[0]));
@@ -240,7 +240,7 @@ store_status_t img_store_init(void)
 
 	while (f_readdir(&s_dir, &s_info) == FR_OK && s_info.fname[0] != '\0') {
 		uint32_t id;
-		if (parse_jpg(s_info.fname, &id)) {
+		if (parse_img(s_info.fname, &id)) {
 			keep_newest(id);
 		}
 	}
@@ -314,7 +314,7 @@ void img_store_abort(img_store_slot_t *slot)
 store_status_t img_store_commit(img_store_slot_t *slot)
 {
 	char path[PATH_LEN];
-	jpg_path(path, slot->id);
+	img_path(path, slot->id);
 
 	if (f_close(&slot->file) != FR_OK || f_rename(TMP_PATH, path) != FR_OK) {
 		f_unlink(TMP_PATH);
@@ -352,7 +352,7 @@ store_status_t img_store_acquire(uint32_t from_id, uint32_t *id)
 	for (uint32_t i = 0; i < s_count; i++) {
 		if (s_ids[i] >= from_id) {
 			char path[PATH_LEN];
-			jpg_path(path, s_ids[i]);
+			img_path(path, s_ids[i]);
 
 			st = STORE_ERR_FS;
 			if (f_open(&s_held_file, path, FA_READ) == FR_OK) {

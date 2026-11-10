@@ -98,7 +98,37 @@ int img_capture_frame(uint32_t *frame, uint8_t test_pattern)
 }
 
 /**
- * @brief  Captures one frame, encodes it to JPEG and stores it on the SD card.
+ * @brief  Writes a captured frame to an open file, as JPEG or raw RGB565 depending on COMPRESSION_MODE.
+ *
+ * @param *frame Captured raw frame (IMG_CAPTURE_BYTES).
+ * @param quality JPEG quality, ignored when compression is disabled.
+ * @param *dst Pointer to the open destination file.
+ * @param *res Pointer to the result (bytes written and time taken).
+ *
+ * @retval IMG_OK on success, otherwise the img_status_t error code
+ */
+static img_status_t write_frame(const uint32_t *frame, uint8_t quality, FIL *dst, img_jpeg_result_t *res)
+{
+#if COMPRESSION_MODE == COMPRESSION_ENABLE
+	const img_jpeg_cfg_t cfg = { IMG_CAPTURE_WIDTH, IMG_CAPTURE_HEIGHT, quality };
+	img_source_t src = { .ram = (const uint8_t *)frame, .swap_bytes = IMG_CAPTURE_SWAP };
+
+	return img_jpeg_encode(&cfg, &src, dst, res);
+#else
+	(void)quality;
+	UINT written = 0;
+	uint32_t start = HAL_GetTick();
+
+	FRESULT fr = f_write(dst, frame, IMG_CAPTURE_BYTES, &written);
+
+	res->encode_ms  = HAL_GetTick() - start;
+	res->jpeg_bytes = written;
+	return (fr == FR_OK && written == IMG_CAPTURE_BYTES) ? IMG_OK : IMG_ERR_WRITE;
+#endif
+}
+
+/**
+ * @brief  Captures one frame and stores it on the SD card (JPEG or raw, see COMPRESSION_MODE).
  *
  * Updates g_imaging_stats with the outcome. On any failure the function
  * returns early and no image is kept.
@@ -107,8 +137,6 @@ int img_capture_frame(uint32_t *frame, uint8_t test_pattern)
  */
 static void camera_capture_single(uint32_t *frame)
 {
-	const img_jpeg_cfg_t cfg = { IMG_CAPTURE_WIDTH, IMG_CAPTURE_HEIGHT, IMG_FLIGHT_QUALITY };
-	img_source_t src = { .ram = (const uint8_t *)frame, .swap_bytes = IMG_CAPTURE_SWAP };
 	img_jpeg_result_t res;
 
 	// Grab a frame from the camera
@@ -123,8 +151,8 @@ static void camera_capture_single(uint32_t *frame)
 		return;
 	}
 
-	// Encode straight into the open file; discard the slot if it fails
-	img_status_t st = img_jpeg_encode(&cfg, &src, &s_slot.file, &res);
+	// Write straight into the open file; discard the slot if it fails
+	img_status_t st = write_frame(frame, IMG_FLIGHT_QUALITY, &s_slot.file, &res);
 	if (st != IMG_OK) {
 		img_store_abort(&s_slot);
 		g_imaging_stats.encode_failed++;
@@ -258,17 +286,15 @@ void camera_dashboard_operate()
 }
 
 /**
- * @brief  Captures one self-test image and encodes it to a named file on the SD card.
+ * @brief  Captures one self-test image and writes it to a named file on the SD card.
  *
- * @param *name File name to write, e.g., "BARS.JPG"
+ * @param *name File name to write, e.g., "BARS" IMG_FILE_EXT
  * @param *frame Buffer the camera DMA writes the raw frame into.
  * @param test_pattern 1 for the colour bar test pattern, 0 for a live image.
  * @param *tc Pointer to the report entry to fill.
  */
 static void run_case(const char *name, uint32_t *frame, uint8_t test_pattern, volatile selftest_case_t *tc)
 {
-	const img_jpeg_cfg_t cfg = { IMG_CAPTURE_WIDTH, IMG_CAPTURE_HEIGHT, IMG_SELFTEST_QUALITY };
-	img_source_t src = { .ram = (const uint8_t *)frame, .swap_bytes = IMG_CAPTURE_SWAP };
 	img_jpeg_result_t res = {0};
 
 	tc->captured = (img_capture_frame(frame, test_pattern) == 0);
@@ -278,7 +304,7 @@ static void run_case(const char *name, uint32_t *frame, uint8_t test_pattern, vo
 
 	img_status_t st = IMG_ERR_WRITE;
 	if (f_open(&s_file, name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
-		st = img_jpeg_encode(&cfg, &src, &s_file, &res);
+		st = write_frame(frame, IMG_SELFTEST_QUALITY, &s_file, &res);
 		if (f_close(&s_file) != FR_OK && st == IMG_OK) {
 			st = IMG_ERR_WRITE;
 		}
@@ -289,7 +315,7 @@ static void run_case(const char *name, uint32_t *frame, uint8_t test_pattern, vo
 }
 
 /**
- * @brief  Runs the camera/JPEG/SD self-test: saves BARS.JPG (test pattern) and LIVE.JPG.
+ * @brief  Runs the camera/storage self-test: saves BARS and LIVE images (test pattern and live) with IMG_FILE_EXT.
  *
  * Results are stored in g_img_selftest. Does nothing if the store is not ready.
  *
@@ -302,6 +328,6 @@ void img_selftest_run(uint32_t *frame)
 		return;
 	}
 
-	run_case("BARS.JPG", frame, 1, &g_img_selftest.bars);
-	run_case("LIVE.JPG", frame, 0, &g_img_selftest.live);
+	run_case("BARS" IMG_FILE_EXT, frame, 1, &g_img_selftest.bars);
+	run_case("LIVE" IMG_FILE_EXT, frame, 0, &g_img_selftest.live);
 }

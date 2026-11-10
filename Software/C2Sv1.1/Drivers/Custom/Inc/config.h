@@ -13,7 +13,10 @@
 #define LED_ENABLE				1
 #define LED_DISABLE				0
 
-#define NO_MODE 				0
+#define COMPRESSION_ENABLE		1					// Encode captures to JPEG 
+#define COMPRESSION_DISABLE		0					// Store raw RGB565 captures 
+
+#define NO_MODE				0
 #define USB_MODE 				1
 #define SLAVE_MODE 				2
 
@@ -22,6 +25,8 @@
 #define OPERATIONAL_MODE 		SLAVE_MODE
 
 #define LED_MODE				LED_ENABLE
+
+#define COMPRESSION_MODE		COMPRESSION_ENABLE
 
 // ------------ CONFIGURATION ENDS HERE ------------
 

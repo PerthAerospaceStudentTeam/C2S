@@ -1021,7 +1021,9 @@ void imagingTask(void *argument)
 	}
 
 	#if OPERATIONAL_MODE != NO_MODE
-		img_jpeg_init(&hjpeg);
+		#if COMPRESSION_MODE == COMPRESSION_ENABLE
+		  img_jpeg_init(&hjpeg);
+		#endif
 
 		#if IMG_SELFTEST
 		  img_selftest_run(pBuffer);

@@ -6,6 +6,10 @@
  */
 
 #include "img_jpeg.h"
+#include "config.h"
+
+#if COMPRESSION_MODE == COMPRESSION_ENABLE
+
 #include "jpeg_utils.h"
 #include <string.h>
 
@@ -180,3 +184,5 @@ img_status_t img_jpeg_encode(const img_jpeg_cfg_t *cfg, img_source_t *src,
 	}
 	return s_err;
 }
+
+#endif /* COMPRESSION_MODE == COMPRESSION_ENABLE */

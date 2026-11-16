@@ -195,7 +195,6 @@ void camera_capture_continuous(uint32_t *frame)
 		if ((g_imaging_req.buf != 0) && (g_imaging_req.src != IMG_SRC_NIL))
 		{
 			camera_capture_single(frame);
-			g_imaging_req.timestamp = xTaskGetTickCount();
 			g_imaging_req.buf = g_imaging_req.buf - 1;
 			if (g_imaging_req.buf == 0) g_imaging_req.src = IMG_SRC_NIL;
 		}

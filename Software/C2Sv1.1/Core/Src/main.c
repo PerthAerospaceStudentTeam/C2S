@@ -1064,8 +1064,10 @@ void imageHkReqTask(void *argument)
   {
 	  if (g_imaging_req.src != IMG_SRC_FISH)
 	  {
-		  g_imaging_req.buf = 1;
-		  g_imaging_req.src = IMG_SRC_C2S;
+		  // Popualte request with relevant data
+		  g_imaging_req.timestamp = xTaskGetTickCount();	// When the image was requested
+		  g_imaging_req.buf = 1;							// When FISH isn't taking a photo, force one onto the queue
+		  g_imaging_req.src = IMG_SRC_C2S;					// Request source identifier (requested from C2S, not FISH)
 	  }
 
 	  osDelay(configTICK_RATE_HZ*10); // Wait 10s

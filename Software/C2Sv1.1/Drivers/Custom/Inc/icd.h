@@ -34,13 +34,13 @@
 
 /** Decoded ICD packet. Address fields are only valid when has_addr is set. */
 typedef struct {
-	uint8_t id;
-	uint8_t has_addr;
-	uint8_t source;
-	uint8_t recipient;
-	uint8_t type;
-	uint8_t data_len;
-	uint8_t data[ICD_DATA_MAX];
+    uint8_t id;
+    uint8_t has_addr;
+    uint8_t source;
+    uint8_t recipient;
+    uint8_t type;
+    uint8_t data_len;
+    uint8_t data[ICD_DATA_MAX];
 } icd_packet_t;
 
 uint8_t icd_checksum(const uint8_t *frame, uint32_t len);

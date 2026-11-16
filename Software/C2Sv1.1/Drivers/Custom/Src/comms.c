@@ -71,11 +71,14 @@ static void send_heartbeat(void)
 /**
  * @brief  Add FISH request to imaging queue
  */
-static void req_image(void)
+static void req_image(const icd_packet_t *pkt)
 {
 	if (g_imaging_req.src == IMG_SRC_C2S) g_imaging_req.buf = 0; // Housekeeping requests are lowest priority, remove from queue
-	g_imaging_req.buf = g_imaging_req.buf + 1;
-	g_imaging_req.src = IMG_SRC_FISH;
+
+	// Populate Image Request Queue with Data from FISH Request
+	g_imaging_req.buf = g_imaging_req.buf + 1;	// Add image to queue
+	g_imaging_req.src = IMG_SRC_FISH;			// Requested from FISH
+	g_imaging_req.timestamp = pkt->data;		// Timestamp that FISH requested at
 }
 
 /**
@@ -93,7 +96,7 @@ static void handle(const icd_packet_t *pkt)
 
 	if (pkt->id == ICD_ID_REQUEST && pkt->type == ICD_TYPE_IMAGE) {
 
-		req_image();
+		req_image(pkt);
 
 	} else if (pkt->id == ICD_ID_REQUEST && pkt->type == ICD_TYPE_HEARTBEAT) {
 
